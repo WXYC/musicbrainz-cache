@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/unit/ -v
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: musicbrainz
+          POSTGRES_PASSWORD: musicbrainz
+          POSTGRES_DB: musicbrainz
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U musicbrainz"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Enable extensions
+        run: |
+          PGPASSWORD=musicbrainz psql -h localhost -p 5434 -U musicbrainz -d musicbrainz \
+            -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;"
+      - name: Run all tests
+        env:
+          DATABASE_URL_TEST: postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz
+        run: pytest -m 'not slow' -v

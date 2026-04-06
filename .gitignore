@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+data/
+*.tar.bz2
+.coverage
+.pipeline_state.json
