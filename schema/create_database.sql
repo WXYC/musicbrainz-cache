@@ -6,6 +6,9 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
 -- Drop in FK-safe order (children first)
+DROP TABLE IF EXISTS mb_track CASCADE;
+DROP TABLE IF EXISTS mb_medium CASCADE;
+DROP TABLE IF EXISTS mb_recording CASCADE;
 DROP TABLE IF EXISTS mb_artist_tag CASCADE;
 DROP TABLE IF EXISTS mb_artist_credit_name CASCADE;
 DROP TABLE IF EXISTS mb_release_group CASCADE;
@@ -98,8 +101,39 @@ CREATE TABLE mb_release_group (
     type        integer
 );
 
+-- Recording tables (for AcousticBrainz feature lookup)
+
+CREATE TABLE mb_recording (
+    id          integer PRIMARY KEY,
+    gid         uuid NOT NULL,          -- MusicBrainz recording MBID
+    name        text NOT NULL,
+    artist_credit integer REFERENCES mb_artist_credit(id),
+    length      integer                  -- milliseconds
+);
+
+CREATE TABLE mb_medium (
+    id          integer PRIMARY KEY,
+    release     integer,
+    position    integer,
+    format      integer
+);
+
+CREATE TABLE mb_track (
+    id          integer PRIMARY KEY,
+    recording   integer NOT NULL REFERENCES mb_recording(id),
+    medium      integer NOT NULL REFERENCES mb_medium(id),
+    position    integer NOT NULL,
+    name        text NOT NULL,
+    artist_credit integer REFERENCES mb_artist_credit(id),
+    length      integer
+);
+
 -- Indexes
 
+CREATE INDEX idx_mb_recording_gid ON mb_recording(gid);
+CREATE INDEX idx_mb_recording_credit ON mb_recording(artist_credit);
+CREATE INDEX idx_mb_track_recording ON mb_track(recording);
+CREATE INDEX idx_mb_track_medium ON mb_track(medium);
 CREATE INDEX idx_mb_artist_name_lower ON mb_artist (lower(name));
 CREATE INDEX idx_mb_artist_area ON mb_artist (area);
 CREATE INDEX idx_mb_artist_alias_artist ON mb_artist_alias (artist);

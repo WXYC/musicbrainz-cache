@@ -65,6 +65,16 @@ class TableSpec:
 #
 # release_group: id(0), gid(1), name(2), artist_credit(3), type(4), comment(5),
 #                edits_pending(6), last_updated(7)
+#
+# recording: id(0), gid(1), name(2), artist_credit(3), length(4), comment(5),
+#            edits_pending(6), last_updated(7), video(8)
+#
+# medium: id(0), release(1), position(2), format(3), name(4),
+#         edits_pending(5), last_updated(6), track_count(7)
+#
+# track: id(0), gid(1), recording(2), medium(3), position(4), number(5),
+#        name(6), artist_credit(7), length(8), edits_pending(9), last_updated(10),
+#        is_data_track(11)
 
 TABLES: list[TableSpec] = [
     TableSpec("area_type", "mb_area_type", [0, 1], ["id", "name"]),
@@ -102,6 +112,29 @@ TABLES: list[TableSpec] = [
         "mb_release_group",
         [0, 2, 3, 4],
         ["id", "name", "artist_credit", "type"],
+    ),
+    # Recording tables (for AcousticBrainz feature lookup)
+    # recording: id(0), gid(1), name(2), artist_credit(3), length(4), comment(5), ...
+    TableSpec(
+        "recording",
+        "mb_recording",
+        [0, 1, 2, 3, 4],
+        ["id", "gid", "name", "artist_credit", "length"],
+    ),
+    # medium: id(0), release(1), position(2), format(3), name(4), ...
+    TableSpec(
+        "medium",
+        "mb_medium",
+        [0, 1, 2, 3],
+        ["id", "release", "position", "format"],
+    ),
+    # track: id(0), gid(1), recording(2), medium(3), position(4), number(5),
+    #        name(6), artist_credit(7), length(8), ...
+    TableSpec(
+        "track",
+        "mb_track",
+        [0, 2, 3, 4, 6, 7, 8],
+        ["id", "recording", "medium", "position", "name", "artist_credit", "length"],
     ),
 ]
 
