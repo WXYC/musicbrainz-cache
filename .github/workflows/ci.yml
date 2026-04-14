@@ -11,22 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout wxyc-etl at expected relative path
+        run: git clone --depth 1 https://github.com/WXYC/wxyc-etl.git "$GITHUB_WORKSPACE/../../../wxyc-etl"
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings -A clippy::manual_is_multiple_of
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e ".[dev]"
-      - run: pytest tests/unit/ -v
+      - name: Checkout wxyc-etl at expected relative path
+        run: git clone --depth 1 https://github.com/WXYC/wxyc-etl.git "$GITHUB_WORKSPACE/../../../wxyc-etl"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
 
   test-postgres:
     runs-on: ubuntu-latest
@@ -46,15 +46,14 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - name: Checkout wxyc-etl at expected relative path
+        run: git clone --depth 1 https://github.com/WXYC/wxyc-etl.git "$GITHUB_WORKSPACE/../../../wxyc-etl"
+      - uses: dtolnay/rust-toolchain@stable
       - name: Enable extensions
         run: |
           PGPASSWORD=musicbrainz psql -h localhost -p 5434 -U musicbrainz -d musicbrainz \
             -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;"
-      - name: Run all tests
+      - name: Run integration tests
         env:
-          DATABASE_URL_TEST: postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz
-        run: pytest -m 'not slow' -v
+          DATABASE_URL: postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz
+        run: cargo test -- --ignored --test-threads=1
