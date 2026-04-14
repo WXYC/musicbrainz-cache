@@ -65,6 +65,9 @@ class TestTableSpecs:
             "mb_artist_credit",
             "mb_artist_credit_name",
             "mb_release_group",
+            "mb_recording",
+            "mb_medium",
+            "mb_track",
         }
         assert names == expected
 

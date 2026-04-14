@@ -178,12 +178,31 @@ def import_table(conn: psycopg.Connection, spec: TableSpec, data_dir: Path) -> i
             if row_count % 500_000 == 0:
                 logger.info("  %s: %d rows read...", spec.dump_file, row_count)
 
+    buf_size = buf.tell()
     buf.seek(0)
+    logger.info(
+        "  %s: read complete (%d rows, %d MB), copying to %s...",
+        spec.dump_file,
+        row_count,
+        buf_size // (1024 * 1024),
+        spec.table,
+    )
     columns = ", ".join(spec.db_columns)
+    copied = 0
+    chunk_size = 8 * 1024 * 1024
     with conn.cursor() as cur:
         with cur.copy(f"COPY {spec.table} ({columns}) FROM STDIN WITH (FORMAT text)") as copy:
-            while chunk := buf.read(8 * 1024 * 1024):
+            while chunk := buf.read(chunk_size):
                 copy.write(chunk)
+                copied += len(chunk)
+                if copied % (100 * 1024 * 1024) < chunk_size:
+                    logger.info(
+                        "  %s: %d MB / %d MB copied",
+                        spec.table,
+                        copied // (1024 * 1024),
+                        buf_size // (1024 * 1024),
+                    )
+    logger.info("  %s: committing...", spec.table)
     conn.commit()
 
     elapsed = time.time() - start

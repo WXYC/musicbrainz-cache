@@ -68,6 +68,27 @@ def apply_schema(db_url: str) -> None:
     logger.info("Schema applied.")
 
 
+def create_indexes(db_url: str) -> None:
+    """Create secondary indexes after bulk import."""
+    logger.info("Creating indexes...")
+    start = time.time()
+    conn = psycopg.connect(db_url, autocommit=True)
+    sql = SCHEMA_DIR.joinpath("create_indexes.sql").read_text()
+    with conn.cursor() as cur:
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if not statement or statement.startswith("--"):
+                continue
+            # Extract index name for logging
+            parts = statement.split()
+            idx_name = parts[2] if len(parts) > 2 else "unknown"
+            idx_start = time.time()
+            cur.execute(statement)
+            logger.info("  %s (%.1fs)", idx_name, time.time() - idx_start)
+    conn.close()
+    logger.info("Indexes created in %.1fs", time.time() - start)
+
+
 def run_vacuum(db_url: str) -> None:
     """VACUUM FULL all tables."""
     tables = [
@@ -82,12 +103,18 @@ def run_vacuum(db_url: str) -> None:
         "mb_artist_credit",
         "mb_artist_credit_name",
         "mb_release_group",
+        "mb_recording",
+        "mb_medium",
+        "mb_track",
     ]
     logger.info("Running VACUUM FULL...")
     conn = psycopg.connect(db_url, autocommit=True)
     with conn.cursor() as cur:
         for table in tables:
+            logger.info("  VACUUM FULL %s...", table)
+            start = time.time()
             cur.execute(f"VACUUM FULL {table}")
+            logger.info("  VACUUM FULL %s done (%.1fs)", table, time.time() - start)
     conn.close()
     logger.info("VACUUM complete.")
 
@@ -182,7 +209,10 @@ def main(argv: list[str] | None = None) -> None:
             ],
         )
 
-    # Step 6: Vacuum
+    # Step 6: Create indexes
+    create_indexes(args.database_url)
+
+    # Step 7: Vacuum
     run_vacuum(args.database_url)
 
     elapsed = time.time() - pipeline_start

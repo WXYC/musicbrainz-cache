@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
+import subprocess
 import tarfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-
-import httpx
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -48,8 +49,91 @@ ARCHIVES = [
 ]
 
 
+def _find_decompressor() -> str | None:
+    """Return the path to lbzip2 or pbzip2, or None if neither is installed."""
+    for tool in ("lbzip2", "pbzip2"):
+        path = shutil.which(tool)
+        if path is not None:
+            return path
+    return None
+
+
+def _extract_tables_subprocess(
+    archive_path: Path,
+    needed_files: set[str],
+    output_dir: Path,
+    decompressor: str,
+    archive_prefix: str = "mbdump",
+) -> bool:
+    """Extract tables using a parallel decompressor piped to tar.
+
+    Returns True on success, False on failure (caller should fall back).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    patterns = [f"{archive_prefix}/{name}" for name in sorted(needed_files)]
+
+    try:
+        decomp_proc = subprocess.Popen(
+            [decompressor, "-dc", str(archive_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        tar_proc = subprocess.Popen(
+            ["tar", "xf", "-", "--strip-components=1", "-C", str(output_dir)] + patterns,
+            stdin=decomp_proc.stdout,
+            stderr=subprocess.PIPE,
+        )
+        # Allow decomp_proc to receive SIGPIPE if tar exits early
+        decomp_proc.stdout.close()
+
+        _, tar_stderr = tar_proc.communicate()
+        decomp_proc.wait()
+
+        if tar_proc.returncode != 0:
+            logger.warning(
+                "tar failed (exit %d): %s",
+                tar_proc.returncode,
+                tar_stderr.decode(errors="replace").strip(),
+            )
+            return False
+
+        return True
+
+    except OSError as exc:
+        logger.warning("Subprocess extraction failed: %s", exc)
+        return False
+
+
+def _extract_tables_streaming(
+    archive_path: Path,
+    needed_files: set[str],
+    output_dir: Path,
+) -> None:
+    """Extract tables using Python's tarfile in streaming mode with early exit.
+
+    Uses 'r|bz2' (streaming mode) instead of 'r:bz2' (seekable mode)
+    to avoid EOFError on truncated archive tails.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    remaining = set(needed_files)
+
+    with tarfile.open(archive_path, "r|bz2") as tar:
+        for member in tar:
+            if not remaining:
+                break
+            name = member.name.split("/")[-1] if "/" in member.name else member.name
+            if name in remaining:
+                member.name = name
+                tar.extract(member, output_dir)
+                size_mb = member.size / (1024 * 1024)
+                logger.info("  Extracted %s (%.1f MB)", name, size_mb)
+                remaining.discard(name)
+
+
 def find_latest_dump_url() -> str:
     """Find the URL of the latest full export directory."""
+    import httpx
+
     logger.info("Finding latest dump at %s", BASE_URL)
     resp = httpx.get(f"{BASE_URL}/", follow_redirects=True, timeout=30)
     resp.raise_for_status()
@@ -69,6 +153,8 @@ def find_latest_dump_url() -> str:
 
 def download_file(url: str, dest: Path) -> None:
     """Download a file with progress logging."""
+    import httpx
+
     if dest.exists():
         logger.info("Already downloaded: %s", dest.name)
         return
@@ -100,20 +186,27 @@ def download_file(url: str, dest: Path) -> None:
 
 
 def extract_tables(archive_path: Path, needed_files: set[str], output_dir: Path) -> None:
-    """Extract only the needed table files from a tar.bz2 archive."""
+    """Extract only the needed table files from a tar.bz2 archive.
+
+    Attempts parallel decompression via lbzip2/pbzip2 first, falls back
+    to Python's tarfile in streaming mode.
+    """
     logger.info("Extracting from %s ...", archive_path.name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with tarfile.open(archive_path, "r:bz2") as tar:
-        for member in tar:
-            # Files are at mbdump/<table_name>
-            name = member.name.split("/")[-1] if "/" in member.name else member.name
-            if name in needed_files:
-                # Extract to flat output_dir (strip mbdump/ prefix)
-                member.name = name
-                tar.extract(member, output_dir)
-                size_mb = member.size / (1024 * 1024)
-                logger.info("  Extracted %s (%.1f MB)", name, size_mb)
+    decompressor = _find_decompressor()
+    extracted_via_subprocess = False
+
+    if decompressor:
+        logger.info("Using parallel decompressor: %s", decompressor)
+        extracted_via_subprocess = _extract_tables_subprocess(
+            archive_path, needed_files, output_dir, decompressor
+        )
+
+    if not extracted_via_subprocess:
+        if decompressor:
+            logger.info("Subprocess extraction failed, falling back to Python tarfile")
+        _extract_tables_streaming(archive_path, needed_files, output_dir)
 
     extracted = [f for f in needed_files if (output_dir / f).exists()]
     missing = needed_files - set(extracted)
@@ -134,21 +227,46 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    dump_url = args.dump_url or find_latest_dump_url()
+    dump_url = None
+    if not args.skip_download:
+        dump_url = args.dump_url or find_latest_dump_url()
 
-    for archive_name, needed_files in ARCHIVES:
+    # Download phase (sequential -- network bound)
+    for archive_name, _needed_files in ARCHIVES:
         archive_path = args.output_dir / archive_name
-
         if not args.skip_download:
             download_file(f"{dump_url}/{archive_name}", archive_path)
 
+    # Extraction phase (parallel -- CPU bound)
+    extraction_tasks = []
+    for archive_name, needed_files in ARCHIVES:
+        archive_path = args.output_dir / archive_name
         if not archive_path.exists():
             logger.error("Archive not found: %s", archive_path)
             continue
+        extraction_tasks.append((archive_path, needed_files))
 
-        extract_tables(archive_path, needed_files, args.output_dir / "mbdump")
+    mbdump_dir = args.output_dir / "mbdump"
+    if len(extraction_tasks) > 1:
+        with ThreadPoolExecutor(max_workers=len(extraction_tasks)) as executor:
+            futures = {
+                executor.submit(extract_tables, archive_path, needed_files, mbdump_dir): (
+                    archive_path.name
+                )
+                for archive_path, needed_files in extraction_tasks
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    future.result()
+                except Exception:
+                    logger.exception("Extraction failed for %s", name)
+                    raise
+    elif extraction_tasks:
+        archive_path, needed_files = extraction_tasks[0]
+        extract_tables(archive_path, needed_files, mbdump_dir)
 
-    logger.info("Done. Extracted files in %s", args.output_dir / "mbdump")
+    logger.info("Done. Extracted files in %s", mbdump_dir)
 
 
 if __name__ == "__main__":
