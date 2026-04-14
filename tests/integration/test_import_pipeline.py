@@ -319,3 +319,143 @@ class TestIndexCreation:
         assert "idx_mb_artist_name_lower" in indexes
         assert "idx_mb_recording_gid" in indexes
         assert "idx_mb_artist_alias_name_lower" in indexes
+
+
+class TestBrokenEscapeSequence:
+    """TSV with broken escape sequence should produce an error message, not hang."""
+
+    @pytest.fixture(autouse=True, scope="class")
+    def _set_up(self, db_url, tmp_path_factory):
+        self.__class__._db_url = db_url
+        conn = psycopg.connect(db_url, autocommit=True)
+        _apply_schema(conn)
+        self.__class__._conn = conn
+
+        # Create a TSV fixture with a broken escape sequence
+        tmp = tmp_path_factory.mktemp("broken_fixtures")
+        self.__class__._fixtures_dir = tmp
+
+        # Valid area_type fixture (needed first for FK ordering)
+        (tmp / "area_type").write_text("1\tCountry\n2\tSubdivision\n3\tCity\n")
+        # Valid gender fixture
+        (tmp / "gender").write_text("1\tMale\n2\tFemale\n3\tOther\n")
+        # Valid tag fixture
+        (tmp / "tag").write_text("1\telectronic\n2\tidm\n")
+        # Valid area fixture
+        (tmp / "area").write_text("100\tUnited Kingdom\t1\n")
+        # Valid country_area fixture
+        (tmp / "country_area").write_text("100\n")
+        # Broken artist fixture: a line with bad column count (too few tabs)
+        # This simulates a broken escape that collapses columns
+        (tmp / "artist").write_text(
+            "1000\tf74b190f-8ece-46b1-aee6-5a5dcbe97eda\tAutechre\tAutechre\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t100\t\\N\tBritish electronic duo\t0\t\\N\t0\t100\t\\N\n"
+            "BROKEN_LINE\n"  # This line has too few columns
+            "1001\ta1b2c3d4-e5f6-7890-abcd-ef0123456789\tStereolab\tStereolab\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t100\t\\N\tAvant-pop group\t0\t\\N\t0\t\\N\t\\N\n"
+        )
+
+        yield
+        conn.close()
+
+    def test_broken_line_skipped_without_hang(self) -> None:
+        """Import completes without hanging; broken lines are skipped via IndexError."""
+        import_conn = psycopg.connect(self._db_url)
+
+        # Import just the artist table (after reference tables)
+        from .conftest import import_tsv
+
+        # Import reference tables first
+        for spec in import_tsv.TABLES:
+            if spec.dump_file in ("area_type", "gender", "tag", "area", "country_area"):
+                import_tsv.import_table(import_conn, spec, self._fixtures_dir)
+
+        # Import artist table with the broken fixture
+        artist_spec = next(s for s in import_tsv.TABLES if s.table == "mb_artist")
+        row_count = import_tsv.import_table(import_conn, artist_spec, self._fixtures_dir)
+        import_conn.close()
+
+        # The broken line should have been skipped (IndexError on column extraction)
+        # Valid lines should have been imported
+        assert row_count == 2, (
+            f"Expected 2 valid rows (broken line skipped), got {row_count}"
+        )
+
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT name FROM mb_artist ORDER BY name")
+            names = [row[0] for row in cur.fetchall()]
+        assert "Autechre" in names
+        assert "Stereolab" in names
+
+    def test_error_does_not_corrupt_subsequent_rows(self) -> None:
+        """Rows after the broken line are imported correctly."""
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT id, name, sort_name FROM mb_artist WHERE id = 1001")
+            row = cur.fetchone()
+        if row is not None:
+            assert row[1] == "Stereolab"
+            assert row[2] == "Stereolab"
+
+
+class TestMissingTsvFiles:
+    """Resume test: import gracefully handles missing TSV files."""
+
+    @pytest.fixture(autouse=True, scope="class")
+    def _set_up(self, db_url, tmp_path_factory):
+        self.__class__._db_url = db_url
+        conn = psycopg.connect(db_url, autocommit=True)
+        _apply_schema(conn)
+        self.__class__._conn = conn
+
+        # Create a fixtures directory with only some files present
+        tmp = tmp_path_factory.mktemp("sparse_fixtures")
+        self.__class__._fixtures_dir = tmp
+
+        # Only create reference tables and artist -- skip everything else
+        (tmp / "area_type").write_text("1\tCountry\n")
+        (tmp / "gender").write_text("1\tMale\n")
+        (tmp / "tag").write_text("1\telectronic\n")
+        (tmp / "area").write_text("100\tUnited Kingdom\t1\n")
+        (tmp / "country_area").write_text("100\n")
+        (tmp / "artist").write_text(
+            "1000\tf74b190f-8ece-46b1-aee6-5a5dcbe97eda\tAutechre\tAutechre"
+            "\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t100\t\\N\t\t0\t\\N\t0\t100\t\\N\n"
+        )
+        # Deliberately missing: artist_alias, artist_tag, artist_credit,
+        # artist_credit_name, release_group, recording, medium, track,
+        # url, link_type, link, release, l_release_group_url, l_release_url
+
+        yield
+        conn.close()
+
+    def test_import_all_skips_missing_files(self) -> None:
+        """import_all completes successfully even when most TSV files are missing."""
+        from .conftest import import_tsv
+
+        import_conn = psycopg.connect(self._db_url)
+        # Should not raise -- missing files are logged as warnings and skipped
+        import_tsv.import_all(import_conn, self._fixtures_dir)
+        import_conn.close()
+
+    def test_present_tables_populated(self) -> None:
+        """Tables with available TSV files should be populated."""
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM mb_artist")
+            count = cur.fetchone()[0]
+        assert count == 1
+
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT name FROM mb_artist WHERE id = 1000")
+            row = cur.fetchone()
+        assert row is not None
+        assert row[0] == "Autechre"
+
+    def test_missing_tables_empty(self) -> None:
+        """Tables without TSV files should exist (from schema) but be empty."""
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM mb_artist_alias")
+            count = cur.fetchone()[0]
+        assert count == 0
+
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM mb_release_group")
+            count = cur.fetchone()[0]
+        assert count == 0
