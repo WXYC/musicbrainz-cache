@@ -56,4 +56,5 @@ jobs:
       - name: Run integration tests
         env:
           DATABASE_URL: postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz
+          TEST_DATABASE_URL: postgresql://musicbrainz:musicbrainz@localhost:5434/postgres
         run: cargo test -- --ignored --test-threads=1
