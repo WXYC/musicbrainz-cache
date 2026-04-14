@@ -1,9 +1,6 @@
 .DS_Store
-__pycache__/
-*.pyc
-*.egg-info/
+/target/
 .env
 data/
 *.tar.bz2
-.coverage
 .pipeline_state.json
