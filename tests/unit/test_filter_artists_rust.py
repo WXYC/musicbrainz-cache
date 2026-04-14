@@ -5,6 +5,9 @@ Rust batch_normalize() path, plus alias handling and performance.
 """
 
 import importlib.util
+import random
+import string
+import time
 from pathlib import Path
 
 import pytest
@@ -193,3 +196,56 @@ class TestBatchFilterAliasHandling:
         # Should contain both direct and alias matches
         assert 1 in matching_ids  # Autechre (direct)
         assert 103 in matching_ids  # Buck Meek (alias)
+
+
+def _random_artist_name(rng: random.Random) -> str:
+    """Generate a random artist-like name with occasional diacritics."""
+    length = rng.randint(3, 25)
+    chars = []
+    for _ in range(length):
+        if rng.random() < 0.05:
+            chars.append(rng.choice("àáâãäåèéêëìíîïòóôõöùúûüñç"))
+        elif rng.random() < 0.15:
+            chars.append(" ")
+        else:
+            chars.append(rng.choice(string.ascii_letters))
+    return "".join(chars)
+
+
+@pytest.mark.slow
+class TestBatchFilterPerformance:
+    """Benchmark: Rust batch_normalize must be significantly faster than Python per-row."""
+
+    def test_batch_filter_performance(self) -> None:
+        rng = random.Random(42)
+        n_names = 100_000
+        n_library = 6_500
+
+        # Generate synthetic data
+        all_names = [_random_artist_name(rng) for _ in range(n_names)]
+        library_set = {normalize(n) for n in all_names[:n_library]}
+
+        # Time Python path
+        py_start = time.perf_counter()
+        py_results = [normalize(name) in library_set for name in all_names]
+        py_elapsed = time.perf_counter() - py_start
+
+        # Time Rust path
+        rs_start = time.perf_counter()
+        normalized = batch_normalize(all_names)
+        rs_results = [norm in library_set for norm in normalized]
+        rs_elapsed = time.perf_counter() - rs_start
+
+        # Verify identical results
+        assert py_results == rs_results
+
+        speedup = py_elapsed / rs_elapsed
+        print(f"\nPython: {py_elapsed:.3f}s, Rust: {rs_elapsed:.3f}s, speedup: {speedup:.1f}x")
+        # batch_normalize offloads normalization to Rust but set membership is
+        # still in Python, so ~1.5-2x at 100K. Full batch_filter_artists (when
+        # exposed via PyO3) would yield much higher speedups by keeping
+        # everything in Rust.
+        assert speedup >= 1.3, (
+            f"Expected at least 1.3x speedup, got {speedup:.1f}x "
+            f"(Python={py_elapsed:.3f}s, Rust={rs_elapsed:.3f}s)"
+        )
