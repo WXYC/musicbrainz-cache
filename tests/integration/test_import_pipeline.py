@@ -11,7 +11,14 @@ from __future__ import annotations
 import psycopg
 import pytest
 
-from .conftest import FIXTURES_DIR, SCHEMA_DIR, WXYC_ARTISTS, filter_artists, import_tsv, run_pipeline
+from .conftest import (
+    FIXTURES_DIR,
+    SCHEMA_DIR,
+    WXYC_ARTISTS,
+    filter_artists,
+    import_tsv,
+    run_pipeline,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -159,9 +166,7 @@ class TestTsvImport:
 
     def test_duke_ellington_credit_has_two_names(self) -> None:
         with self._conn.cursor() as cur:
-            cur.execute(
-                "SELECT COUNT(*) FROM mb_artist_credit_name WHERE artist_credit = 5003"
-            )
+            cur.execute("SELECT COUNT(*) FROM mb_artist_credit_name WHERE artist_credit = 5003")
             count = cur.fetchone()[0]
         assert count == 2, "Duke Ellington & John Coltrane credit should have 2 names"
 
@@ -271,9 +276,7 @@ class TestArtistFiltering:
         """Only tags referenced by matching artists should remain."""
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT t.name FROM mb_tag t "
-                "JOIN mb_artist_tag at ON t.id = at.tag "
-                "ORDER BY t.name"
+                "SELECT t.name FROM mb_tag t JOIN mb_artist_tag at ON t.id = at.tag ORDER BY t.name"
             )
             tags = [row[0] for row in cur.fetchall()]
         assert "electronic" in tags
