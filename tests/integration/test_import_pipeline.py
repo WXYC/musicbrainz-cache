@@ -335,22 +335,25 @@ class TestBrokenEscapeSequence:
         tmp = tmp_path_factory.mktemp("broken_fixtures")
         self.__class__._fixtures_dir = tmp
 
-        # Valid area_type fixture (needed first for FK ordering)
+        # Valid area_type fixture (id, name -- source_indices [0, 1])
         (tmp / "area_type").write_text("1\tCountry\n2\tSubdivision\n3\tCity\n")
-        # Valid gender fixture
+        # Valid gender fixture (id, name -- source_indices [0, 1])
         (tmp / "gender").write_text("1\tMale\n2\tFemale\n3\tOther\n")
-        # Valid tag fixture
+        # Valid tag fixture (id, name -- source_indices [0, 1])
         (tmp / "tag").write_text("1\telectronic\n2\tidm\n")
-        # Valid area fixture
-        (tmp / "area").write_text("100\tUnited Kingdom\t1\n")
-        # Valid country_area fixture
-        (tmp / "country_area").write_text("100\n")
+        # Valid area fixture -- must match MB dump format: id(0), gid(1), name(2), type(3), ...
+        # source_indices [0, 2, 3] -> id, name, type
+        (tmp / "area").write_text(
+            "221\tb3aac116-4321-3476-a2c1-405e4e637dba\tUnited Kingdom\t1\t0\t\\N\n"
+        )
+        # Valid country_area fixture (area -- source_indices [0])
+        (tmp / "country_area").write_text("221\n")
         # Broken artist fixture: a line with bad column count (too few tabs)
         # This simulates a broken escape that collapses columns
         (tmp / "artist").write_text(
-            "1000\tf74b190f-8ece-46b1-aee6-5a5dcbe97eda\tAutechre\tAutechre\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t100\t\\N\tBritish electronic duo\t0\t\\N\t0\t100\t\\N\n"
+            "1000\tf74b190f-8ece-46b1-aee6-5a5dcbe97eda\tAutechre\tAutechre\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t221\t\\N\tBritish electronic duo\t0\t\\N\t0\t221\t\\N\n"
             "BROKEN_LINE\n"  # This line has too few columns
-            "1001\ta1b2c3d4-e5f6-7890-abcd-ef0123456789\tStereolab\tStereolab\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t100\t\\N\tAvant-pop group\t0\t\\N\t0\t\\N\t\\N\n"
+            "1001\ta1b2c3d4-e5f6-7890-abcd-ef0123456789\tStereolab\tStereolab\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t221\t\\N\tAvant-pop group\t0\t\\N\t0\t\\N\t\\N\n"
         )
 
         yield
@@ -375,9 +378,7 @@ class TestBrokenEscapeSequence:
 
         # The broken line should have been skipped (IndexError on column extraction)
         # Valid lines should have been imported
-        assert row_count == 2, (
-            f"Expected 2 valid rows (broken line skipped), got {row_count}"
-        )
+        assert row_count == 2, f"Expected 2 valid rows (broken line skipped), got {row_count}"
 
         with self._conn.cursor() as cur:
             cur.execute("SELECT name FROM mb_artist ORDER BY name")
@@ -410,14 +411,22 @@ class TestMissingTsvFiles:
         self.__class__._fixtures_dir = tmp
 
         # Only create reference tables and artist -- skip everything else
+        # area_type: id(0), name(1) -- source_indices [0, 1]
         (tmp / "area_type").write_text("1\tCountry\n")
+        # gender: id(0), name(1) -- source_indices [0, 1]
         (tmp / "gender").write_text("1\tMale\n")
+        # tag: id(0), name(1) -- source_indices [0, 1]
         (tmp / "tag").write_text("1\telectronic\n")
-        (tmp / "area").write_text("100\tUnited Kingdom\t1\n")
-        (tmp / "country_area").write_text("100\n")
+        # area: MB dump format id(0), gid(1), name(2), type(3), ...
+        (tmp / "area").write_text(
+            "221\tb3aac116-4321-3476-a2c1-405e4e637dba\tUnited Kingdom\t1\t0\t\\N\n"
+        )
+        # country_area: area(0) -- source_indices [0]
+        (tmp / "country_area").write_text("221\n")
+        # artist: MB dump format (19 columns)
         (tmp / "artist").write_text(
             "1000\tf74b190f-8ece-46b1-aee6-5a5dcbe97eda\tAutechre\tAutechre"
-            "\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t100\t\\N\t\t0\t\\N\t0\t100\t\\N\n"
+            "\t\\N\t\\N\t\\N\t\\N\t\\N\t\\N\t2\t221\t\\N\t\t0\t\\N\t0\t221\t\\N\n"
         )
         # Deliberately missing: artist_alias, artist_tag, artist_credit,
         # artist_credit_name, release_group, recording, medium, track,
