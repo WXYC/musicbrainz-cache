@@ -6,6 +6,12 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
 -- Drop in FK-safe order (children first)
+DROP TABLE IF EXISTS mb_l_release_url CASCADE;
+DROP TABLE IF EXISTS mb_l_release_group_url CASCADE;
+DROP TABLE IF EXISTS mb_release CASCADE;
+DROP TABLE IF EXISTS mb_link CASCADE;
+DROP TABLE IF EXISTS mb_link_type CASCADE;
+DROP TABLE IF EXISTS mb_url CASCADE;
 DROP TABLE IF EXISTS mb_track CASCADE;
 DROP TABLE IF EXISTS mb_medium CASCADE;
 DROP TABLE IF EXISTS mb_recording CASCADE;
@@ -126,6 +132,48 @@ CREATE TABLE mb_track (
     name        text NOT NULL,
     artist_credit integer REFERENCES mb_artist_credit(id),
     length      integer
+);
+
+-- URL/streaming tables
+
+CREATE TABLE mb_url (
+    id          integer PRIMARY KEY,
+    gid         uuid NOT NULL,
+    url         text NOT NULL
+);
+
+CREATE TABLE mb_link_type (
+    id          integer PRIMARY KEY,
+    name        text NOT NULL,
+    entity_type0 text NOT NULL,
+    entity_type1 text NOT NULL
+);
+
+CREATE TABLE mb_link (
+    id          integer PRIMARY KEY,
+    link_type   integer NOT NULL REFERENCES mb_link_type(id)
+);
+
+CREATE TABLE mb_release (
+    id              integer PRIMARY KEY,
+    gid             uuid NOT NULL,
+    name            text NOT NULL,
+    artist_credit   integer NOT NULL REFERENCES mb_artist_credit(id),
+    release_group   integer NOT NULL REFERENCES mb_release_group(id)
+);
+
+CREATE TABLE mb_l_release_group_url (
+    id          integer PRIMARY KEY,
+    link        integer NOT NULL REFERENCES mb_link(id),
+    release_group integer NOT NULL REFERENCES mb_release_group(id),
+    url         integer NOT NULL REFERENCES mb_url(id)
+);
+
+CREATE TABLE mb_l_release_url (
+    id          integer PRIMARY KEY,
+    link        integer NOT NULL REFERENCES mb_link(id),
+    release     integer NOT NULL REFERENCES mb_release(id),
+    url         integer NOT NULL REFERENCES mb_url(id)
 );
 
 -- Indexes are created separately after bulk import (see create_indexes.sql).

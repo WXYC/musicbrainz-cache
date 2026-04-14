@@ -41,7 +41,7 @@ class TestConstants:
     """Validate archive and file set definitions."""
 
     def test_core_files_count(self) -> None:
-        assert len(CORE_FILES) == 9
+        assert len(CORE_FILES) == 15
 
     def test_derived_files_count(self) -> None:
         assert len(DERIVED_FILES) == 2

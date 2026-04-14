@@ -50,6 +50,13 @@ class TestTableSpecs:
         assert names.index("mb_artist") < names.index("mb_artist_tag")
         assert names.index("mb_artist_credit") < names.index("mb_artist_credit_name")
         assert names.index("mb_artist_credit") < names.index("mb_release_group")
+        assert names.index("mb_link_type") < names.index("mb_link")
+        assert names.index("mb_url") < names.index("mb_l_release_group_url")
+        assert names.index("mb_url") < names.index("mb_l_release_url")
+        assert names.index("mb_link") < names.index("mb_l_release_group_url")
+        assert names.index("mb_link") < names.index("mb_l_release_url")
+        assert names.index("mb_release_group") < names.index("mb_release")
+        assert names.index("mb_release") < names.index("mb_l_release_url")
 
     def test_expected_tables_present(self) -> None:
         names = {spec.table for spec in TABLES}
@@ -68,6 +75,12 @@ class TestTableSpecs:
             "mb_recording",
             "mb_medium",
             "mb_track",
+            "mb_url",
+            "mb_link_type",
+            "mb_link",
+            "mb_release",
+            "mb_l_release_group_url",
+            "mb_l_release_url",
         }
         assert names == expected
 

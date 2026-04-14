@@ -36,6 +36,12 @@ CORE_FILES = {
     "artist_credit",
     "artist_credit_name",
     "release_group",
+    "url",
+    "link",
+    "link_type",
+    "release",
+    "l_release_group_url",
+    "l_release_url",
 }
 
 DERIVED_FILES = {
