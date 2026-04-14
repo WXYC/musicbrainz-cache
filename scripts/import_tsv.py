@@ -11,7 +11,6 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import logging
 import time
 from dataclasses import dataclass
@@ -75,6 +74,28 @@ class TableSpec:
 # track: id(0), gid(1), recording(2), medium(3), position(4), number(5),
 #        name(6), artist_credit(7), length(8), edits_pending(9), last_updated(10),
 #        is_data_track(11)
+#
+# url: id(0), gid(1), url(2), edits_pending(3), last_updated(4)
+#
+# link_type: id(0), parent(1), child_order(2), gid(3), entity_type0(4),
+#            entity_type1(5), name(6), description(7), link_phrase(8),
+#            reverse_link_phrase(9), long_link_phrase(10), last_updated(11),
+#            is_deprecated(12), has_dates(13), entity0_cardinality(14),
+#            entity1_cardinality(15)
+#
+# link: id(0), link_type(1), begin_date_year(2), begin_date_month(3),
+#       begin_date_day(4), end_date_year(5), end_date_month(6),
+#       end_date_day(7), attribute_count(8), created(9), ended(10)
+#
+# release: id(0), gid(1), name(2), artist_credit(3), release_group(4),
+#          status(5), packaging(6), language(7), script(8), barcode(9),
+#          comment(10), edits_pending(11), quality(12), last_updated(13)
+#
+# l_release_group_url: id(0), link(1), entity0(2), entity1(3),
+#                      edits_pending(4), last_updated(5), link_order(6),
+#                      entity0_credit(7), entity1_credit(8)
+#
+# l_release_url: same layout as l_release_group_url
 
 TABLES: list[TableSpec] = [
     TableSpec("area_type", "mb_area_type", [0, 1], ["id", "name"]),
@@ -136,6 +157,33 @@ TABLES: list[TableSpec] = [
         [0, 2, 3, 4, 6, 7, 8],
         ["id", "recording", "medium", "position", "name", "artist_credit", "length"],
     ),
+    # URL/streaming tables
+    TableSpec("url", "mb_url", [0, 1, 2], ["id", "gid", "url"]),
+    TableSpec(
+        "link_type",
+        "mb_link_type",
+        [0, 6, 4, 5],
+        ["id", "name", "entity_type0", "entity_type1"],
+    ),
+    TableSpec("link", "mb_link", [0, 1], ["id", "link_type"]),
+    TableSpec(
+        "release",
+        "mb_release",
+        [0, 1, 2, 3, 4],
+        ["id", "gid", "name", "artist_credit", "release_group"],
+    ),
+    TableSpec(
+        "l_release_group_url",
+        "mb_l_release_group_url",
+        [0, 1, 2, 3],
+        ["id", "link", "release_group", "url"],
+    ),
+    TableSpec(
+        "l_release_url",
+        "mb_l_release_url",
+        [0, 1, 2, 3],
+        ["id", "link", "release", "url"],
+    ),
 ]
 
 # Tables that come from mbdump-derived.tar.bz2 instead of mbdump.tar.bz2
@@ -146,7 +194,8 @@ def import_table(conn: psycopg.Connection, spec: TableSpec, data_dir: Path) -> i
     """Import a single table from its TSV dump file.
 
     Reads the full-width TSV, extracts only the columns we need,
-    and streams them to PostgreSQL via COPY.
+    and streams them directly to PostgreSQL via COPY. Reading and
+    Postgres ingestion happen concurrently -- no intermediate buffer.
     """
     tsv_path = data_dir / spec.dump_file
     if not tsv_path.exists():
@@ -155,53 +204,31 @@ def import_table(conn: psycopg.Connection, spec: TableSpec, data_dir: Path) -> i
 
     start = time.time()
     row_count = 0
-    buf = io.BytesIO()
-
-    with open(tsv_path, encoding="utf-8") as f:
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            try:
-                extracted = [parts[i] for i in spec.source_indices]
-            except IndexError:
-                continue
-
-            # Apply null transforms
-            if spec.null_transform:
-                for idx, default in spec.null_transform.items():
-                    pos = spec.source_indices.index(idx)
-                    if extracted[pos] == "\\N":
-                        extracted[pos] = default
-
-            buf.write(("\t".join(extracted) + "\n").encode("utf-8"))
-            row_count += 1
-
-            if row_count % 500_000 == 0:
-                logger.info("  %s: %d rows read...", spec.dump_file, row_count)
-
-    buf_size = buf.tell()
-    buf.seek(0)
-    logger.info(
-        "  %s: read complete (%d rows, %d MB), copying to %s...",
-        spec.dump_file,
-        row_count,
-        buf_size // (1024 * 1024),
-        spec.table,
-    )
     columns = ", ".join(spec.db_columns)
-    copied = 0
-    chunk_size = 8 * 1024 * 1024
+
     with conn.cursor() as cur:
         with cur.copy(f"COPY {spec.table} ({columns}) FROM STDIN WITH (FORMAT text)") as copy:
-            while chunk := buf.read(chunk_size):
-                copy.write(chunk)
-                copied += len(chunk)
-                if copied % (100 * 1024 * 1024) < chunk_size:
-                    logger.info(
-                        "  %s: %d MB / %d MB copied",
-                        spec.table,
-                        copied // (1024 * 1024),
-                        buf_size // (1024 * 1024),
-                    )
+            with open(tsv_path, encoding="utf-8") as f:
+                for line in f:
+                    parts = line.rstrip("\n").split("\t")
+                    try:
+                        extracted = [parts[i] for i in spec.source_indices]
+                    except IndexError:
+                        continue
+
+                    # Apply null transforms
+                    if spec.null_transform:
+                        for idx, default in spec.null_transform.items():
+                            pos = spec.source_indices.index(idx)
+                            if extracted[pos] == "\\N":
+                                extracted[pos] = default
+
+                    copy.write(("\t".join(extracted) + "\n").encode("utf-8"))
+                    row_count += 1
+
+                    if row_count % 500_000 == 0:
+                        logger.info("  %s: %d rows imported...", spec.dump_file, row_count)
+
     logger.info("  %s: committing...", spec.table)
     conn.commit()
 

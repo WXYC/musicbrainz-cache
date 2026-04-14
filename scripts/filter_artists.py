@@ -151,6 +151,49 @@ def prune_to_matching(conn: psycopg.Connection, matching_ids: set[int]) -> None:
         swaps.append(
             _save_kept(cur, "mb_medium", "id IN (SELECT DISTINCT medium FROM _kept_mb_track)")
         )
+        # Releases for kept release groups
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_release",
+                "release_group IN (SELECT id FROM _kept_mb_release_group)",
+            )
+        )
+        # URL relationship tables
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_l_release_group_url",
+                "release_group IN (SELECT id FROM _kept_mb_release_group)",
+            )
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_l_release_url",
+                "release IN (SELECT id FROM _kept_mb_release)",
+            )
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_link",
+                """id IN (
+                    SELECT link FROM _kept_mb_l_release_group_url
+                    UNION SELECT link FROM _kept_mb_l_release_url
+                )""",
+            )
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_url",
+                """id IN (
+                    SELECT url FROM _kept_mb_l_release_group_url
+                    UNION SELECT url FROM _kept_mb_l_release_url
+                )""",
+            )
+        )
         swaps.append(
             _save_kept(cur, "mb_tag", "id IN (SELECT DISTINCT tag FROM _kept_mb_artist_tag)")
         )
@@ -167,7 +210,7 @@ def prune_to_matching(conn: psycopg.Connection, matching_ids: set[int]) -> None:
 
         # Small reference tables: not filtered, but must be included in TRUNCATE
         # because they're referenced by FK constraints from tables we are truncating.
-        ref_tables = ["mb_country_area", "mb_area_type", "mb_gender"]
+        ref_tables = ["mb_country_area", "mb_area_type", "mb_gender", "mb_link_type"]
         for rt in ref_tables:
             swaps.append(_save_kept(cur, rt, "TRUE"))
 
@@ -189,7 +232,7 @@ def prune_to_matching(conn: psycopg.Connection, matching_ids: set[int]) -> None:
 
         # Clean up
         cur.execute("DROP TABLE _keep_ids")
-        cur.execute("SET session_replication_role = 'DEFAULT'")
+        cur.execute("SET session_replication_role = 'origin'")
         conn.commit()
 
     elapsed = time.time() - start
@@ -213,6 +256,12 @@ def report_sizes(conn: psycopg.Connection) -> None:
         "mb_recording",
         "mb_medium",
         "mb_track",
+        "mb_url",
+        "mb_link_type",
+        "mb_link",
+        "mb_release",
+        "mb_l_release_group_url",
+        "mb_l_release_url",
     ]
     logger.info("Table sizes after filtering:")
     with conn.cursor() as cur:

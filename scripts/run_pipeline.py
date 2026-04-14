@@ -76,8 +76,10 @@ def create_indexes(db_url: str) -> None:
     sql = SCHEMA_DIR.joinpath("create_indexes.sql").read_text()
     with conn.cursor() as cur:
         for statement in sql.split(";"):
-            statement = statement.strip()
-            if not statement or statement.startswith("--"):
+            # Strip comment lines and whitespace
+            lines = [ln for ln in statement.splitlines() if not ln.strip().startswith("--")]
+            statement = "\n".join(lines).strip()
+            if not statement:
                 continue
             # Extract index name for logging
             parts = statement.split()
@@ -110,6 +112,12 @@ def run_analyze(db_url: str) -> None:
         "mb_recording",
         "mb_medium",
         "mb_track",
+        "mb_url",
+        "mb_link_type",
+        "mb_link",
+        "mb_release",
+        "mb_l_release_group_url",
+        "mb_l_release_url",
     ]
     logger.info("Running ANALYZE...")
     conn = psycopg.connect(db_url, autocommit=True)
@@ -139,6 +147,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--skip-download", action="store_true", help="Skip download, use existing files"
+    )
+    parser.add_argument(
+        "--skip-import",
+        action="store_true",
+        help="Skip schema and import, use existing database (resume at filter step)",
     )
     parser.add_argument(
         "--no-filter", action="store_true", help="Import all artists without filtering"
@@ -175,29 +188,32 @@ def main(argv: list[str] | None = None) -> None:
             download_cmd.extend(["--dump-url", args.dump_url])
         run_step("Download and extract MusicBrainz dumps", download_cmd)
 
-    mbdump_dir = args.data_dir / "mbdump"
-    if not mbdump_dir.exists():
-        logger.error("mbdump directory not found: %s", mbdump_dir)
-        sys.exit(1)
-
     # Step 2: Wait for PostgreSQL
     wait_for_postgres(args.database_url)
 
-    # Step 3: Apply schema
-    apply_schema(args.database_url)
+    if not args.skip_import:
+        mbdump_dir = args.data_dir / "mbdump"
+        if not mbdump_dir.exists():
+            logger.error("mbdump directory not found: %s", mbdump_dir)
+            sys.exit(1)
 
-    # Step 4: Import TSV files
-    run_step(
-        "Import TSV files",
-        [
-            sys.executable,
-            "scripts/import_tsv.py",
-            "--data-dir",
-            str(mbdump_dir),
-            "--database-url",
-            args.database_url,
-        ],
-    )
+        # Step 3: Apply schema
+        apply_schema(args.database_url)
+
+        # Step 4: Import TSV files
+        run_step(
+            "Import TSV files",
+            [
+                sys.executable,
+                "scripts/import_tsv.py",
+                "--data-dir",
+                str(mbdump_dir),
+                "--database-url",
+                args.database_url,
+            ],
+        )
+    else:
+        logger.info("Skipping schema and import (--skip-import)")
 
     # Step 5: Filter to WXYC artists
     if not args.no_filter:
