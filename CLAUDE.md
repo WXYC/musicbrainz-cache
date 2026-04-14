@@ -9,6 +9,7 @@ Rust binary that builds a WXYC-filtered MusicBrainz cache database. Downloads Mu
 - `src/import.rs` -- TSV import. Reads headerless MusicBrainz dump files, extracts columns by positional index, streams to PostgreSQL via COPY.
 - `src/filter.rs` -- Artist filtering. Loads WXYC library.db (SQLite), matches by normalized name + aliases, prunes via copy-and-swap.
 - `src/schema.rs` -- DDL application (create_database.sql, create_indexes.sql) and ANALYZE.
+- `src/state.rs` -- Pipeline state persistence for resume support. Records completed steps so interrupted runs can resume.
 - `schema/` -- PostgreSQL DDL (14 tables) and secondary indexes (14 indexes).
 
 ## Dependencies
@@ -55,5 +56,19 @@ Uses copy-and-swap instead of DELETE to avoid dead tuples. Steps:
 
 ## Testing
 
-- **Unit tests** (16): TableSpec validation, column mapping, dependency ordering, normalization parity, library loading, download constants.
+```bash
+# Unit tests (no database required)
+cargo test
+
+# Integration tests (requires PostgreSQL on port 5434)
+cargo test -- --ignored --test-threads=1
+
+# Parity tests (requires TEST_DATABASE_URL)
+TEST_DATABASE_URL=postgresql://musicbrainz:musicbrainz@localhost:5434/postgres \
+  cargo test parity -- --ignored --test-threads=1
+```
+
+- **Unit tests** (22): TableSpec validation, column mapping, dependency ordering, normalization parity, library loading, download constants, tar.bz2 extraction, pipeline state persistence.
+- **Parity tests** (12): Import row counts vs baselines, sample data verification, NULL handling, alias/tag/recording data, filtered row counts, filtered artist sets, orphan detection. Gated on `TEST_DATABASE_URL`.
+- **State tests** (10): State file creation, step tracking, roundtrip serialization, resume skip logic, partial failure + resume, state clear.
 - **Integration tests** (12): Full import, NULL handling, column extraction, artist matching, pruning, orphan cleanup. Require PostgreSQL on port 5434.

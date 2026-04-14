@@ -229,6 +229,11 @@ pub fn extract_tables(
     log::info!("Extracting from {} ...", archive_path.display());
     std::fs::create_dir_all(output_dir)?;
 
+    if needed_files.is_empty() {
+        log::info!("No files requested, skipping extraction");
+        return Ok(());
+    }
+
     let mut extracted_via_subprocess = false;
 
     if let Some(decompressor) = find_decompressor() {
