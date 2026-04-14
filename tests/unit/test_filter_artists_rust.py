@@ -90,3 +90,106 @@ class TestNormalizeParity:
         batch_results = batch_normalize(names)
         single_results = [normalize_artist_name(n) for n in names]
         assert batch_results == single_results
+
+
+# Simulated DB rows: (id, name)
+MB_ARTIST_ROWS = [
+    (1, "Autechre"),
+    (2, "STEREOLAB"),
+    (3, "Cat Power"),
+    (4, "Radiohead"),
+    (5, "The Beatles"),
+    (6, "Led Zeppelin"),
+    (7, "Jessica Pratt"),
+    (8, "Björk"),  # diacritics — not in library set
+    (9, "Chuquimamani-Condori"),
+    (10, "Duke Ellington"),
+    (11, "Juana Molina"),
+    (12, "Father John Misty"),
+    (13, "  Cat Power  "),  # whitespace variant
+    (14, ""),  # empty string
+    (15, "Café Tacvba"),  # diacritics — not in library set
+    (16, "Prince Jammy"),
+    (17, "Bjo\u0308rk"),  # combining diaeresis form — not in library set (normalizes to "bjork")
+]
+
+# Simulated alias rows: (artist_id, alias_name)
+MB_ALIAS_ROWS = [
+    (100, "Ae"),  # alias for Autechre — not in library set
+    (101, "Cat Power"),  # alias matches
+    (102, "The Stereolab Group"),  # doesn't match
+    (103, "Buck Meek"),  # matches
+    (104, "Large Professor"),  # matches
+    (105, "Nourished By Time"),  # matches (case difference)
+]
+
+
+def _python_filter(rows: list[tuple[int, str]], library_set: set[str]) -> set[int]:
+    """Python fallback: per-row normalize + set lookup."""
+    return {row_id for row_id, name in rows if normalize(name) in library_set}
+
+
+def _rust_filter(rows: list[tuple[int, str]], library_set: set[str]) -> set[int]:
+    """Rust path: batch_normalize + set lookup."""
+    if not rows:
+        return set()
+    ids, names = zip(*rows)
+    normalized = batch_normalize(list(names))
+    return {ids[i] for i, norm in enumerate(normalized) if norm in library_set}
+
+
+class TestBatchFilterParity:
+    """Rust batch path must produce identical match results to Python per-row path."""
+
+    def test_artist_name_matching(self) -> None:
+        py_matches = _python_filter(MB_ARTIST_ROWS, LIBRARY_ARTISTS)
+        rs_matches = _rust_filter(MB_ARTIST_ROWS, LIBRARY_ARTISTS)
+        assert py_matches == rs_matches
+
+    def test_expected_matches(self) -> None:
+        """Verify which specific artists should match."""
+        matches = _rust_filter(MB_ARTIST_ROWS, LIBRARY_ARTISTS)
+        # Should match: Autechre(1), STEREOLAB(2), Cat Power(3), Jessica Pratt(7),
+        # Chuquimamani-Condori(9), Duke Ellington(10), Juana Molina(11),
+        # Father John Misty(12), whitespace Cat Power(13), Prince Jammy(16)
+        assert matches == {1, 2, 3, 7, 9, 10, 11, 12, 13, 16}
+
+    def test_non_matches(self) -> None:
+        """Verify non-library artists don't match."""
+        matches = _rust_filter(MB_ARTIST_ROWS, LIBRARY_ARTISTS)
+        # Radiohead(4), Beatles(5), Led Zeppelin(6), Björk(8), empty(14),
+        # Café Tacvba(15), Björk combining(17) should NOT match
+        for non_match_id in [4, 5, 6, 8, 14, 15, 17]:
+            assert non_match_id not in matches
+
+    def test_empty_input(self) -> None:
+        assert _rust_filter([], LIBRARY_ARTISTS) == set()
+
+    def test_empty_library(self) -> None:
+        assert _rust_filter(MB_ARTIST_ROWS, set()) == set()
+
+
+class TestBatchFilterAliasHandling:
+    """Alias matching must work identically through the Rust batch path."""
+
+    def test_alias_parity(self) -> None:
+        py_matches = _python_filter(MB_ALIAS_ROWS, LIBRARY_ARTISTS)
+        rs_matches = _rust_filter(MB_ALIAS_ROWS, LIBRARY_ARTISTS)
+        assert py_matches == rs_matches
+
+    def test_expected_alias_matches(self) -> None:
+        matches = _rust_filter(MB_ALIAS_ROWS, LIBRARY_ARTISTS)
+        # Cat Power(101), Buck Meek(103), Large Professor(104),
+        # Nourished By Time(105) should match
+        assert matches == {101, 103, 104, 105}
+
+    def test_combined_artist_and_alias_matching(self) -> None:
+        """Simulate the full find_matching_artist_ids flow."""
+        # First pass: match by artist name
+        matching_ids = _rust_filter(MB_ARTIST_ROWS, LIBRARY_ARTISTS)
+        # Second pass: match by alias — adds new artist IDs
+        alias_matches = _rust_filter(MB_ALIAS_ROWS, LIBRARY_ARTISTS)
+        matching_ids |= alias_matches
+        # Should contain both direct and alias matches
+        assert 1 in matching_ids  # Autechre (direct)
+        assert 103 in matching_ids  # Buck Meek (alias)
