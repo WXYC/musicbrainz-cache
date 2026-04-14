@@ -165,6 +165,12 @@ def prune_to_matching(conn: psycopg.Connection, matching_ids: set[int]) -> None:
             )
         )
 
+        # Small reference tables: not filtered, but must be included in TRUNCATE
+        # because they're referenced by FK constraints from tables we are truncating.
+        ref_tables = ["mb_country_area", "mb_area_type", "mb_gender"]
+        for rt in ref_tables:
+            swaps.append(_save_kept(cur, rt, "TRUE"))
+
         # Phase 2: Truncate all tables in one statement.
         # Listing all tables together satisfies FK constraints without CASCADE.
         logger.info("Phase 2: truncating tables...")
