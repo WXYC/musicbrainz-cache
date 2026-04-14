@@ -94,13 +94,7 @@ pub static TABLES: &[TableSpec] = &[
         dump_file: "artist_credit_name",
         table: "mb_artist_credit_name",
         source_indices: &[0, 1, 2, 3, 4],
-        db_columns: &[
-            "artist_credit",
-            "position",
-            "artist",
-            "name",
-            "join_phrase",
-        ],
+        db_columns: &["artist_credit", "position", "artist", "name", "join_phrase"],
     },
     TableSpec {
         dump_file: "release_group",
@@ -226,6 +220,10 @@ pub fn import_all(client: &mut postgres::Client, data_dir: &Path) -> anyhow::Res
         total += import_table(client, spec, data_dir)?;
     }
     let elapsed = start.elapsed();
-    log::info!("Import complete: {} total rows in {:.1}s", total, elapsed.as_secs_f64());
+    log::info!(
+        "Import complete: {} total rows in {:.1}s",
+        total,
+        elapsed.as_secs_f64()
+    );
     Ok(total)
 }

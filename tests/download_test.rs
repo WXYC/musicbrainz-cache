@@ -17,7 +17,11 @@ fn test_no_overlap_between_core_and_derived() {
     let core: HashSet<&str> = CORE_FILES.iter().copied().collect();
     let derived: HashSet<&str> = DERIVED_FILES.iter().copied().collect();
     let overlap: Vec<&&str> = core.intersection(&derived).collect();
-    assert!(overlap.is_empty(), "Overlap between core and derived: {:?}", overlap);
+    assert!(
+        overlap.is_empty(),
+        "Overlap between core and derived: {:?}",
+        overlap
+    );
 }
 
 #[test]

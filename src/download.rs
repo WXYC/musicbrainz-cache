@@ -41,7 +41,10 @@ pub fn find_latest_dump_url() -> anyhow::Result<String> {
 
     // Parse directory listing for date-stamped directories (YYYYMMDD-HHMMSS)
     let re = regex_lite::Regex::new(r#"href="(\d{8}-\d{6})/""#).unwrap();
-    let mut dates: Vec<&str> = re.captures_iter(&resp).map(|c| c.get(1).unwrap().as_str()).collect();
+    let mut dates: Vec<&str> = re
+        .captures_iter(&resp)
+        .map(|c| c.get(1).unwrap().as_str())
+        .collect();
 
     if dates.is_empty() {
         bail!("No dump directories found at {BASE_URL}");
@@ -257,10 +260,6 @@ pub fn extract_tables(
     if !missing.is_empty() {
         log::warn!("Missing files: {:?}", missing);
     }
-    log::info!(
-        "Extracted {}/{} files",
-        extracted_count,
-        needed_files.len()
-    );
+    log::info!("Extracted {}/{} files", extracted_count, needed_files.len());
     Ok(())
 }

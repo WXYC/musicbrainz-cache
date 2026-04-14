@@ -7,8 +7,9 @@ fn fixtures_dir() -> PathBuf {
 }
 
 fn db_url() -> String {
-    std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz".into())
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz".into()
+    })
 }
 
 // --- Unit tests (no database required) ---
@@ -62,17 +63,37 @@ fn test_artist_table_indices() {
     assert_eq!(artist.source_indices, &[0, 2, 3, 10, 11, 12, 17, 13]);
     assert_eq!(
         artist.db_columns,
-        &["id", "name", "sort_name", "type", "area", "gender", "begin_area", "comment"],
+        &[
+            "id",
+            "name",
+            "sort_name",
+            "type",
+            "area",
+            "gender",
+            "begin_area",
+            "comment"
+        ],
     );
 }
 
 #[test]
 fn test_artist_alias_table_indices() {
-    let alias = TABLES.iter().find(|s| s.table == "mb_artist_alias").unwrap();
+    let alias = TABLES
+        .iter()
+        .find(|s| s.table == "mb_artist_alias")
+        .unwrap();
     assert_eq!(alias.source_indices, &[0, 1, 2, 7, 3, 6, 14]);
     assert_eq!(
         alias.db_columns,
-        &["id", "artist", "name", "sort_name", "locale", "type", "primary_for_locale"],
+        &[
+            "id",
+            "artist",
+            "name",
+            "sort_name",
+            "locale",
+            "type",
+            "primary_for_locale"
+        ],
     );
 }
 
@@ -82,7 +103,15 @@ fn test_track_table_indices() {
     assert_eq!(track.source_indices, &[0, 2, 3, 4, 6, 7, 8]);
     assert_eq!(
         track.db_columns,
-        &["id", "recording", "medium", "position", "name", "artist_credit", "length"],
+        &[
+            "id",
+            "recording",
+            "medium",
+            "position",
+            "name",
+            "artist_credit",
+            "length"
+        ],
     );
 }
 
@@ -134,7 +163,9 @@ fn test_import_artist_table() {
 
     // Import reference tables first (area_type, gender, area) for FK satisfaction
     for spec in TABLES.iter().filter(|s| {
-        s.table == "mb_area_type" || s.table == "mb_gender" || s.table == "mb_area"
+        s.table == "mb_area_type"
+            || s.table == "mb_gender"
+            || s.table == "mb_area"
             || s.table == "mb_country_area"
     }) {
         import::import_table(&mut client, spec, &fixtures_dir()).unwrap();
@@ -146,7 +177,10 @@ fn test_import_artist_table() {
 
     // Verify specific values
     let row = client
-        .query_one("SELECT name, sort_name, comment FROM mb_artist WHERE id = 100", &[])
+        .query_one(
+            "SELECT name, sort_name, comment FROM mb_artist WHERE id = 100",
+            &[],
+        )
         .unwrap();
     assert_eq!(row.get::<_, &str>(0), "Autechre");
     assert_eq!(row.get::<_, &str>(1), "Autechre");
@@ -154,9 +188,15 @@ fn test_import_artist_table() {
 
     // Verify NULL handling
     let row = client
-        .query_one("SELECT gender, begin_area FROM mb_artist WHERE id = 100", &[])
+        .query_one(
+            "SELECT gender, begin_area FROM mb_artist WHERE id = 100",
+            &[],
+        )
         .unwrap();
-    assert!(row.get::<_, Option<i32>>(0).is_none(), "Autechre gender should be NULL");
+    assert!(
+        row.get::<_, Option<i32>>(0).is_none(),
+        "Autechre gender should be NULL"
+    );
 }
 
 #[test]
@@ -167,7 +207,9 @@ fn test_import_null_handling() {
 
     // Import area_type, gender, area
     for spec in TABLES.iter().filter(|s| {
-        s.table == "mb_area_type" || s.table == "mb_gender" || s.table == "mb_area"
+        s.table == "mb_area_type"
+            || s.table == "mb_gender"
+            || s.table == "mb_area"
             || s.table == "mb_country_area"
     }) {
         import::import_table(&mut client, spec, &fixtures_dir()).unwrap();
@@ -180,7 +222,10 @@ fn test_import_null_handling() {
     let row = client
         .query_one("SELECT area, gender FROM mb_artist WHERE id = 600", &[])
         .unwrap();
-    assert!(row.get::<_, Option<i32>>(0).is_none(), "Björk area should be NULL");
+    assert!(
+        row.get::<_, Option<i32>>(0).is_none(),
+        "Björk area should be NULL"
+    );
     assert_eq!(row.get::<_, Option<i32>>(1), Some(2));
 }
 
@@ -191,7 +236,9 @@ fn test_import_column_extraction() {
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     for spec in TABLES.iter().filter(|s| {
-        s.table == "mb_area_type" || s.table == "mb_gender" || s.table == "mb_area"
+        s.table == "mb_area_type"
+            || s.table == "mb_gender"
+            || s.table == "mb_area"
             || s.table == "mb_country_area"
     }) {
         import::import_table(&mut client, spec, &fixtures_dir()).unwrap();
@@ -295,5 +342,8 @@ fn test_import_recording_tables() {
     let row = client
         .query_one("SELECT gid::text FROM mb_recording WHERE id = 1", &[])
         .unwrap();
-    assert_eq!(row.get::<_, &str>(0), "bbbb1111-1111-1111-1111-111111111111");
+    assert_eq!(
+        row.get::<_, &str>(0),
+        "bbbb1111-1111-1111-1111-111111111111"
+    );
 }
