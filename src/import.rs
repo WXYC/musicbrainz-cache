@@ -1,3 +1,5 @@
+use anyhow::Context;
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 /// Mapping from a MusicBrainz dump file to our schema.
@@ -51,13 +53,30 @@ pub static TABLES: &[TableSpec] = &[
         dump_file: "artist",
         table: "mb_artist",
         source_indices: &[0, 2, 3, 10, 11, 12, 17, 13],
-        db_columns: &["id", "name", "sort_name", "type", "area", "gender", "begin_area", "comment"],
+        db_columns: &[
+            "id",
+            "name",
+            "sort_name",
+            "type",
+            "area",
+            "gender",
+            "begin_area",
+            "comment",
+        ],
     },
     TableSpec {
         dump_file: "artist_alias",
         table: "mb_artist_alias",
         source_indices: &[0, 1, 2, 7, 3, 6, 14],
-        db_columns: &["id", "artist", "name", "sort_name", "locale", "type", "primary_for_locale"],
+        db_columns: &[
+            "id",
+            "artist",
+            "name",
+            "sort_name",
+            "locale",
+            "type",
+            "primary_for_locale",
+        ],
     },
     TableSpec {
         dump_file: "artist_tag",
@@ -75,7 +94,13 @@ pub static TABLES: &[TableSpec] = &[
         dump_file: "artist_credit_name",
         table: "mb_artist_credit_name",
         source_indices: &[0, 1, 2, 3, 4],
-        db_columns: &["artist_credit", "position", "artist", "name", "join_phrase"],
+        db_columns: &[
+            "artist_credit",
+            "position",
+            "artist",
+            "name",
+            "join_phrase",
+        ],
     },
     TableSpec {
         dump_file: "release_group",
@@ -99,7 +124,15 @@ pub static TABLES: &[TableSpec] = &[
         dump_file: "track",
         table: "mb_track",
         source_indices: &[0, 2, 3, 4, 6, 7, 8],
-        db_columns: &["id", "recording", "medium", "position", "name", "artist_credit", "length"],
+        db_columns: &[
+            "id",
+            "recording",
+            "medium",
+            "position",
+            "name",
+            "artist_credit",
+            "length",
+        ],
     },
 ];
 
@@ -111,18 +144,88 @@ pub static DERIVED_TABLES: &[&str] = &["artist_tag", "tag"];
 /// Reads the full-width TSV, extracts only the columns we need,
 /// and streams them to PostgreSQL via COPY.
 pub fn import_table(
-    _client: &mut postgres::Client,
-    _spec: &TableSpec,
-    _data_dir: &Path,
+    client: &mut postgres::Client,
+    spec: &TableSpec,
+    data_dir: &Path,
 ) -> anyhow::Result<u64> {
-    todo!()
+    let tsv_path = data_dir.join(spec.dump_file);
+    if !tsv_path.exists() {
+        log::warn!("File not found, skipping: {}", tsv_path.display());
+        return Ok(0);
+    }
+
+    let start = std::time::Instant::now();
+    let file = std::fs::File::open(&tsv_path)
+        .with_context(|| format!("Failed to open {}", tsv_path.display()))?;
+    let reader = BufReader::new(file);
+
+    // Read and extract columns into a buffer
+    let mut buf = Vec::new();
+    let mut row_count: u64 = 0;
+
+    for line in reader.lines() {
+        let line = line?;
+        let parts: Vec<&str> = line.split('\t').collect();
+
+        // Extract columns by index; skip rows with too few columns
+        let max_idx = spec.source_indices.iter().copied().max().unwrap_or(0);
+        if parts.len() <= max_idx {
+            continue;
+        }
+
+        let extracted: Vec<&str> = spec.source_indices.iter().map(|&i| parts[i]).collect();
+        for (j, val) in extracted.iter().enumerate() {
+            if j > 0 {
+                buf.push(b'\t');
+            }
+            buf.extend_from_slice(val.as_bytes());
+        }
+        buf.push(b'\n');
+        row_count += 1;
+
+        if row_count % 500_000 == 0 {
+            log::info!("  {}: {} rows read...", spec.dump_file, row_count);
+        }
+    }
+
+    let buf_size = buf.len();
+    log::info!(
+        "  {}: read complete ({} rows, {} MB), copying to {}...",
+        spec.dump_file,
+        row_count,
+        buf_size / (1024 * 1024),
+        spec.table,
+    );
+
+    // Stream to PostgreSQL via COPY
+    let columns = spec.db_columns.join(", ");
+    let copy_stmt = format!(
+        "COPY {} ({}) FROM STDIN WITH (FORMAT text)",
+        spec.table, columns
+    );
+    let mut writer = client.copy_in(&copy_stmt)?;
+    writer.write_all(&buf)?;
+    writer.finish()?;
+
+    let elapsed = start.elapsed();
+    log::info!(
+        "  {} -> {}: {} rows in {:.1}s",
+        spec.dump_file,
+        spec.table,
+        row_count,
+        elapsed.as_secs_f64(),
+    );
+    Ok(row_count)
 }
 
 /// Import all tables in dependency order.
 pub fn import_all(client: &mut postgres::Client, data_dir: &Path) -> anyhow::Result<u64> {
+    let start = std::time::Instant::now();
     let mut total = 0;
     for spec in TABLES {
         total += import_table(client, spec, data_dir)?;
     }
+    let elapsed = start.elapsed();
+    log::info!("Import complete: {} total rows in {:.1}s", total, elapsed.as_secs_f64());
     Ok(total)
 }
