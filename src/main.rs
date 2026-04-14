@@ -39,8 +39,9 @@ struct Cli {
 }
 
 fn default_database_url() -> String {
-    std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz".into())
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz".into()
+    })
 }
 
 fn wait_for_postgres(db_url: &str, timeout_secs: u64) -> anyhow::Result<()> {

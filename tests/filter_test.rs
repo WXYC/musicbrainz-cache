@@ -12,8 +12,9 @@ fn library_db_path() -> PathBuf {
 }
 
 fn db_url() -> String {
-    std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz".into())
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz".into()
+    })
 }
 
 // --- Unit tests (no database required) ---
@@ -29,8 +30,8 @@ fn test_normalize_matches_python() {
         ("Björk", "bjork"),
         ("Sigur Rós", "sigur ros"),
         ("Cécile McLorin Salvant", "cecile mclorin salvant"),
-        ("テスト・アーティスト", "テスト・アーティスト"),  // CJK characters preserved
-        ("  Spaced Out  ", "spaced out"),              // whitespace trimmed
+        ("テスト・アーティスト", "テスト・アーティスト"), // CJK characters preserved
+        ("  Spaced Out  ", "spaced out"),                 // whitespace trimmed
         ("UPPER CASE", "upper case"),
         ("café", "cafe"),
         ("naïve", "naive"),
@@ -49,7 +50,11 @@ fn test_normalize_matches_python() {
 #[test]
 fn test_load_library_artists() {
     let artists = filter::load_library_artists(&library_db_path()).unwrap();
-    assert_eq!(artists.len(), 3, "Expected 3 unique artists from library.db");
+    assert_eq!(
+        artists.len(),
+        3,
+        "Expected 3 unique artists from library.db"
+    );
     assert!(artists.contains("autechre"));
     assert!(artists.contains("stereolab"));
     assert!(artists.contains("jessica pratt"));
@@ -75,7 +80,10 @@ fn test_find_matching_by_name() {
     // Should match Autechre (100), Stereolab (200), Jessica Pratt (300)
     assert!(matching.contains(&100), "Should match Autechre by name");
     assert!(matching.contains(&200), "Should match Stereolab by name");
-    assert!(matching.contains(&300), "Should match Jessica Pratt by name");
+    assert!(
+        matching.contains(&300),
+        "Should match Jessica Pratt by name"
+    );
 
     // Should NOT match non-library artists
     assert!(!matching.contains(&400), "Should not match Fake Artist One");
@@ -118,7 +126,10 @@ fn prune_and_verify(client: &mut postgres::Client, matching: &HashSet<i32>) {
         .query_one("SELECT COUNT(*) FROM mb_artist", &[])
         .unwrap()
         .get(0);
-    assert_eq!(artist_count, 3, "Should have exactly 3 artists after pruning");
+    assert_eq!(
+        artist_count, 3,
+        "Should have exactly 3 artists after pruning"
+    );
 
     // Verify the correct artists remain
     let remaining: Vec<i32> = client
@@ -131,18 +142,28 @@ fn prune_and_verify(client: &mut postgres::Client, matching: &HashSet<i32>) {
 
     // Non-matching artist tags should be deleted
     let tag_artists: Vec<i32> = client
-        .query("SELECT DISTINCT artist FROM mb_artist_tag ORDER BY artist", &[])
+        .query(
+            "SELECT DISTINCT artist FROM mb_artist_tag ORDER BY artist",
+            &[],
+        )
         .unwrap()
         .iter()
         .map(|r| r.get(0))
         .collect();
     for aid in &tag_artists {
-        assert!(matching.contains(aid), "Tag for non-matching artist {} should be pruned", aid);
+        assert!(
+            matching.contains(aid),
+            "Tag for non-matching artist {} should be pruned",
+            aid
+        );
     }
 
     // Non-matching artist credits should be deleted
     let credit_artists: Vec<i32> = client
-        .query("SELECT DISTINCT artist FROM mb_artist_credit_name ORDER BY artist", &[])
+        .query(
+            "SELECT DISTINCT artist FROM mb_artist_credit_name ORDER BY artist",
+            &[],
+        )
         .unwrap()
         .iter()
         .map(|r| r.get(0))
@@ -160,7 +181,10 @@ fn prune_and_verify(client: &mut postgres::Client, matching: &HashSet<i32>) {
         .query_one("SELECT COUNT(*) FROM mb_release_group", &[])
         .unwrap()
         .get(0);
-    assert_eq!(rg_count, 3, "Should have 3 release groups for matching artists");
+    assert_eq!(
+        rg_count, 3,
+        "Should have 3 release groups for matching artists"
+    );
 }
 
 #[test]
@@ -200,8 +224,14 @@ fn test_prune_orphaned_areas() {
     // Expected: UK (221 - Autechre+Stereolab area), US (222 - Jessica Pratt area + country),
     // Manchester (1000 - Autechre begin_area), London (1001 - Stereolab begin_area),
     // San Francisco (1002 - Jessica Pratt begin_area)
-    assert!(area_count <= 5, "At most 5 areas should remain (not all 5 original)");
-    assert!(area_count >= 4, "At least 4 areas should remain (countries + begin_areas)");
+    assert!(
+        area_count <= 5,
+        "At most 5 areas should remain (not all 5 original)"
+    );
+    assert!(
+        area_count >= 4,
+        "At least 4 areas should remain (countries + begin_areas)"
+    );
 }
 
 #[test]

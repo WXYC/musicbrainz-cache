@@ -111,7 +111,7 @@ pub fn prune_to_matching(
     {
         let mut writer = client.copy_in("COPY _keep_ids (id) FROM STDIN")?;
         for &id in matching_ids {
-            write!(writer, "{}\n", id)?;
+            writeln!(writer, "{}", id)?;
         }
         writer.finish()?;
     }
@@ -122,9 +122,12 @@ pub fn prune_to_matching(
     // Phase 1: Save kept rows to temp tables.
     // Order matters: later queries reference earlier temp tables.
     log::info!("Phase 1: selecting kept rows...");
-    let mut swaps = Vec::new();
-
-    swaps.push(save_kept(client, "mb_artist", "id IN (SELECT id FROM _keep_ids)")?);
+    // Built sequentially: later queries reference earlier temp tables.
+    let mut swaps = vec![save_kept(
+        client,
+        "mb_artist",
+        "id IN (SELECT id FROM _keep_ids)",
+    )?];
     swaps.push(save_kept(
         client,
         "mb_artist_alias",
