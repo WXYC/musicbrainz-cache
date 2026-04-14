@@ -89,8 +89,12 @@ def create_indexes(db_url: str) -> None:
     logger.info("Indexes created in %.1fs", time.time() - start)
 
 
-def run_vacuum(db_url: str) -> None:
-    """VACUUM FULL all tables."""
+def run_analyze(db_url: str) -> None:
+    """ANALYZE all tables to update planner statistics.
+
+    After copy-and-swap filtering, tables have no dead tuples, so VACUUM FULL
+    is unnecessary. ANALYZE updates statistics for the query planner.
+    """
     tables = [
         "mb_artist",
         "mb_artist_alias",
@@ -107,16 +111,16 @@ def run_vacuum(db_url: str) -> None:
         "mb_medium",
         "mb_track",
     ]
-    logger.info("Running VACUUM FULL...")
+    logger.info("Running ANALYZE...")
     conn = psycopg.connect(db_url, autocommit=True)
     with conn.cursor() as cur:
         for table in tables:
-            logger.info("  VACUUM FULL %s...", table)
+            logger.info("  ANALYZE %s...", table)
             start = time.time()
-            cur.execute(f"VACUUM FULL {table}")
-            logger.info("  VACUUM FULL %s done (%.1fs)", table, time.time() - start)
+            cur.execute(f"ANALYZE {table}")
+            logger.info("  ANALYZE %s done (%.1fs)", table, time.time() - start)
     conn.close()
-    logger.info("VACUUM complete.")
+    logger.info("ANALYZE complete.")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -212,8 +216,8 @@ def main(argv: list[str] | None = None) -> None:
     # Step 6: Create indexes
     create_indexes(args.database_url)
 
-    # Step 7: Vacuum
-    run_vacuum(args.database_url)
+    # Step 7: Analyze
+    run_analyze(args.database_url)
 
     elapsed = time.time() - pipeline_start
     logger.info("Pipeline complete in %.1fs", elapsed)

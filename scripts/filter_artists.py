@@ -82,78 +82,112 @@ def find_matching_artist_ids(conn: psycopg.Connection, library_artists: set[str]
     return matching_ids
 
 
+def _save_kept(
+    cur: psycopg.Cursor, table: str, where_clause: str
+) -> tuple[str, str, int]:
+    """Copy kept rows into a temp table. Returns (table, temp_name, row_count)."""
+    temp = f"_kept_{table}"
+    start = time.time()
+    cur.execute(f"CREATE TEMP TABLE {temp} AS SELECT * FROM {table} WHERE {where_clause}")
+    kept = cur.rowcount
+    logger.info("  %s: keeping %d rows (%.1fs)", table, kept, time.time() - start)
+    return table, temp, kept
+
+
 def prune_to_matching(conn: psycopg.Connection, matching_ids: set[int]) -> None:
-    """Delete all non-matching artists and cascade to dependent tables."""
+    """Prune to matching artists using copy-and-swap.
+
+    Instead of deleting millions of non-matching rows (slow, generates dead tuples),
+    copies the kept rows into temp tables, truncates the originals, and re-inserts.
+    """
     logger.info("Pruning to %d matching artists...", len(matching_ids))
     start = time.time()
 
     with conn.cursor() as cur:
-        # Load matching IDs into a temp table for efficient joins
+        # Load matching IDs into a temp table
         cur.execute("CREATE TEMP TABLE _keep_ids (id integer PRIMARY KEY)")
         with cur.copy("COPY _keep_ids (id) FROM STDIN") as copy:
             for aid in matching_ids:
                 copy.write_row((aid,))
         conn.commit()
 
-        # Count before
-        cur.execute("SELECT COUNT(*) FROM mb_artist")
-        before = cur.fetchone()[0]
+        # Disable FK triggers for the truncate/re-insert
+        cur.execute("SET session_replication_role = 'replica'")
 
-        # Delete non-matching artists (FK CASCADE handles dependent tables)
-        cur.execute("DELETE FROM mb_artist WHERE id NOT IN (SELECT id FROM _keep_ids)")
-        deleted = cur.rowcount
-        conn.commit()
-
-        # Also prune artist_credits that no longer have any linked artist
-        cur.execute("""
-            DELETE FROM mb_artist_credit
-            WHERE id NOT IN (SELECT DISTINCT artist_credit FROM mb_artist_credit_name)
-        """)
-        credit_deleted = cur.rowcount
-        conn.commit()
-
-        # Prune release_groups with no valid artist_credit
-        cur.execute("""
-            DELETE FROM mb_release_group
-            WHERE artist_credit NOT IN (SELECT id FROM mb_artist_credit)
-        """)
-        rg_deleted = cur.rowcount
-        conn.commit()
-
-        # Prune orphaned tags
-        cur.execute("""
-            DELETE FROM mb_tag
-            WHERE id NOT IN (SELECT DISTINCT tag FROM mb_artist_tag)
-        """)
-        tag_deleted = cur.rowcount
-        conn.commit()
-
-        # Prune orphaned areas
-        cur.execute("""
-            DELETE FROM mb_area
-            WHERE id NOT IN (
-                SELECT area FROM mb_artist WHERE area IS NOT NULL
-                UNION SELECT begin_area FROM mb_artist WHERE begin_area IS NOT NULL
+        # Phase 1: Save kept rows to temp tables.
+        # Order matters: later queries reference earlier temp tables.
+        logger.info("Phase 1: selecting kept rows...")
+        swaps = []
+        swaps.append(_save_kept(cur, "mb_artist", "id IN (SELECT id FROM _keep_ids)"))
+        swaps.append(_save_kept(cur, "mb_artist_alias", "artist IN (SELECT id FROM _keep_ids)"))
+        swaps.append(_save_kept(cur, "mb_artist_tag", "artist IN (SELECT id FROM _keep_ids)"))
+        swaps.append(
+            _save_kept(cur, "mb_artist_credit_name", "artist IN (SELECT id FROM _keep_ids)")
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_artist_credit",
+                "id IN (SELECT DISTINCT artist_credit FROM _kept_mb_artist_credit_name)",
             )
-            AND id NOT IN (SELECT area FROM mb_country_area)
-        """)
-        area_deleted = cur.rowcount
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_release_group",
+                "artist_credit IN (SELECT id FROM _kept_mb_artist_credit)",
+            )
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_recording",
+                "artist_credit IN (SELECT id FROM _kept_mb_artist_credit)",
+            )
+        )
+        swaps.append(
+            _save_kept(cur, "mb_track", "recording IN (SELECT id FROM _kept_mb_recording)")
+        )
+        swaps.append(
+            _save_kept(cur, "mb_medium", "id IN (SELECT DISTINCT medium FROM _kept_mb_track)")
+        )
+        swaps.append(
+            _save_kept(cur, "mb_tag", "id IN (SELECT DISTINCT tag FROM _kept_mb_artist_tag)")
+        )
+        swaps.append(
+            _save_kept(
+                cur,
+                "mb_area",
+                """id IN (
+                    SELECT area FROM _kept_mb_artist WHERE area IS NOT NULL
+                    UNION SELECT begin_area FROM _kept_mb_artist WHERE begin_area IS NOT NULL
+                ) OR id IN (SELECT area FROM mb_country_area)""",
+            )
+        )
+
+        # Phase 2: Truncate all tables in one statement.
+        # Listing all tables together satisfies FK constraints without CASCADE.
+        logger.info("Phase 2: truncating tables...")
+        all_tables = ", ".join(table for table, _, _ in swaps)
+        cur.execute(f"TRUNCATE {all_tables}")
         conn.commit()
 
+        # Phase 3: Re-insert kept rows.
+        logger.info("Phase 3: re-inserting kept rows...")
+        for table, temp, _ in swaps:
+            t = time.time()
+            cur.execute(f"INSERT INTO {table} SELECT * FROM {temp}")
+            logger.info("  %s: inserted (%.1fs)", table, time.time() - t)
+            cur.execute(f"DROP TABLE {temp}")
+        conn.commit()
+
+        # Clean up
         cur.execute("DROP TABLE _keep_ids")
+        cur.execute("SET session_replication_role = 'DEFAULT'")
         conn.commit()
 
     elapsed = time.time() - start
-    logger.info(
-        "Pruned in %.1fs: %d/%d artists deleted, %d credits, %d release_groups, %d tags, %d areas",
-        elapsed,
-        deleted,
-        before,
-        credit_deleted,
-        rg_deleted,
-        tag_deleted,
-        area_deleted,
-    )
+    logger.info("Pruning complete in %.1fs", elapsed)
 
 
 def report_sizes(conn: psycopg.Connection) -> None:
@@ -170,6 +204,9 @@ def report_sizes(conn: psycopg.Connection) -> None:
         "mb_artist_credit",
         "mb_artist_credit_name",
         "mb_release_group",
+        "mb_recording",
+        "mb_medium",
+        "mb_track",
     ]
     logger.info("Table sizes after filtering:")
     with conn.cursor() as cur:
