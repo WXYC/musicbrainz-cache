@@ -82,9 +82,7 @@ def find_matching_artist_ids(conn: psycopg.Connection, library_artists: set[str]
     return matching_ids
 
 
-def _save_kept(
-    cur: psycopg.Cursor, table: str, where_clause: str
-) -> tuple[str, str, int]:
+def _save_kept(cur: psycopg.Cursor, table: str, where_clause: str) -> tuple[str, str, int]:
     """Copy kept rows into a temp table. Returns (table, temp_name, row_count)."""
     temp = f"_kept_{table}"
     start = time.time()

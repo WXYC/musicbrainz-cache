@@ -144,7 +144,9 @@ class TestExtractTablesSubprocess:
         output = tmp_path / "output"
         _create_test_archive(archive, "mbdump", ["artist"])
 
-        result = _get("_extract_tables_subprocess")(archive, {"artist"}, output, "/nonexistent/lbzip2")
+        result = _get("_extract_tables_subprocess")(
+            archive, {"artist"}, output, "/nonexistent/lbzip2"
+        )
         assert result is False
 
     @pytest.mark.skipif(
@@ -161,7 +163,9 @@ class TestExtractTablesSubprocess:
         _create_test_archive(archive, "mbdump", ["artist", "tag", "extra"])
 
         decompressor = _get("_find_decompressor")()
-        result = _get("_extract_tables_subprocess")(archive, {"artist", "tag"}, output, decompressor)
+        result = _get("_extract_tables_subprocess")(
+            archive, {"artist", "tag"}, output, decompressor
+        )
 
         assert result is True
         assert (output / "artist").exists()
