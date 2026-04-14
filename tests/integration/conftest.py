@@ -57,7 +57,9 @@ def library_db(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("library")
     db_path = tmp / "library.db"
     conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE library (id INTEGER PRIMARY KEY, artist TEXT, album TEXT, title TEXT)")
+    conn.execute(
+        "CREATE TABLE library (id INTEGER PRIMARY KEY, artist TEXT, album TEXT, title TEXT)"
+    )
     for i, artist in enumerate(WXYC_ARTISTS):
         conn.execute(
             "INSERT INTO library (id, artist, album, title) VALUES (?, ?, ?, ?)",
