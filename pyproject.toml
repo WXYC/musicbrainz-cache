@@ -1,11 +1,11 @@
 [tool.pytest.ini_options]
 markers = [
-    "unit: pure logic tests, no external dependencies",
     "postgres: needs PostgreSQL (gated by DATABASE_URL_TEST)",
-    "integration: needs external service or fixture data",
-    "e2e: full pipeline end-to-end test",
-    "parity: old vs new implementation comparison",
-    "slow: marks tests as slow",
+    "slow: marks tests as slow (perf benchmarks)",
 ]
-addopts = "-m 'not integration and not postgres and not e2e and not parity and not slow'"
+# Default unit run excludes the postgres-tagged integration tests and the slow
+# perf benchmark. The CI test-python job re-selects `postgres` explicitly.
+# `slow` is opt-in for local perf runs only.
+# ci-sync-skip: slow reason: perf benchmark, run on demand only (not in CI)
+addopts = "-m 'not postgres and not slow'"
 testpaths = ["tests"]
