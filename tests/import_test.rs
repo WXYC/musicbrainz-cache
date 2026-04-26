@@ -159,6 +159,7 @@ fn test_dependency_order() {
 #[ignore] // Requires PostgreSQL: cargo test -- --ignored
 fn test_import_artist_table() {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     // Import reference tables first (area_type, gender, area) for FK satisfaction
@@ -203,6 +204,7 @@ fn test_import_artist_table() {
 #[ignore]
 fn test_import_null_handling() {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     // Import area_type, gender, area
@@ -233,6 +235,7 @@ fn test_import_null_handling() {
 #[ignore]
 fn test_import_column_extraction() {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     for spec in TABLES.iter().filter(|s| {
@@ -264,6 +267,7 @@ fn test_import_column_extraction() {
 #[ignore]
 fn test_import_all_tables() {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     let total = import::import_all(&mut client, &fixtures_dir()).unwrap();
@@ -299,6 +303,7 @@ fn test_import_all_tables() {
 #[ignore]
 fn test_import_skips_missing_file() {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     let missing_spec = TableSpec {
@@ -315,6 +320,7 @@ fn test_import_skips_missing_file() {
 #[ignore]
 fn test_import_recording_tables() {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
 
     // Import all prerequisites

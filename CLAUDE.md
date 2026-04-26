@@ -67,6 +67,23 @@ CLI contract:
 
 With `--no-filter`, the Filter step is recorded as complete without running so a subsequent `--resume` can advance past it.
 
+## Resume safety
+
+`--resume` is only safe when two invariants hold:
+
+1. **commit-before-save**: `state.save()` MUST run AFTER the step's PG work has committed. The `run_step` helper in `main.rs` enforces this -- it calls `f()` (which uses `postgres::Client` autocommit, so each `batch_execute`/`copy_in` commits before returning) and only then calls `state.mark_complete(...)` followed by `state.save(...)`. If the order were inverted, a crash mid-commit could leave the state file ahead of the database, causing the step to be skipped on resume despite incomplete data.
+2. **idempotent steps**: every step's SQL must be safe to run twice in a row without changing observable state. A crash between PG commit and `state.save()` will cause that step to re-execute on the next `--resume`; if the step is not idempotent, that re-execution would either fail or duplicate data.
+
+How each step satisfies idempotency:
+
+- **Schema** (`schema/create_database.sql`): every statement uses `CREATE EXTENSION IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`. Re-applying against a populated database is a no-op and does NOT drop existing data. Tests that need a clean slate must call `schema::drop_all_tables` first.
+- **Import** (`src/import.rs`): `import_table` checks `SELECT COUNT(*)` on the destination table and skips the COPY when rows are already present. This avoids the PRIMARY-KEY UniqueViolation that re-COPYing would trip and prevents duplicates on tables without a PK.
+- **Filter** (`src/filter.rs`): copy-and-swap is naturally idempotent. On re-run the matching artist set is identical (same library.db, same artist names), the same rows are saved to temp tables, the originals are TRUNCATE'd, and the same rows are re-inserted. Net change: zero rows.
+- **Indexes** (`schema/create_indexes.sql`): every `CREATE INDEX` uses `IF NOT EXISTS`, so re-running on an already-indexed database is a no-op.
+- **Analyze** (`src/schema.rs::analyze_tables`): `ANALYZE` is inherently idempotent.
+
+The `tests/idempotency_test.rs` integration test exercises every step twice in a row against a fixture database and asserts that row counts and the index set are unchanged on the second invocation. It is the safety net that catches regressions in any of the rules above.
+
 ## Testing
 
 ```bash
@@ -85,4 +102,5 @@ TEST_DATABASE_URL=postgresql://musicbrainz:musicbrainz@localhost:5434/postgres \
 - **Parity tests** (12): Import row counts vs baselines, sample data verification, NULL handling, alias/tag/recording data, filtered row counts, filtered artist sets, orphan detection. Gated on `TEST_DATABASE_URL`.
 - **State tests** (10): State file creation, step tracking, roundtrip serialization, resume skip logic, partial failure + resume, state clear.
 - **Resume integration tests** (4): End-to-end subprocess of the binary with `--resume`. Cover full-state skip, partial-state resume (skip Schema+Import, run Filter+Indexes+Analyze), refusal when state exists without `--resume`, and warn-and-start-fresh when `--resume` is passed with no state file. Gated on `TEST_DATABASE_URL`.
+- **Idempotency test** (1): Runs each pipeline step twice in a row and asserts row counts and the index set are unchanged on the second invocation. Enforces the "Resume safety" invariants. Gated on `TEST_DATABASE_URL`.
 - **Integration tests** (12): Full import, NULL handling, column extraction, artist matching, pruning, orphan cleanup. Require PostgreSQL on port 5434.

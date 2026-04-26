@@ -64,6 +64,8 @@ fn test_load_library_artists() {
 
 fn set_up_full_db() -> postgres::Client {
     let mut client = postgres::Client::connect(&db_url(), postgres::NoTls).unwrap();
+    // apply_schema is idempotent; drop first so import_all sees empty tables.
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
     import::import_all(&mut client, &fixtures_dir()).unwrap();
     client

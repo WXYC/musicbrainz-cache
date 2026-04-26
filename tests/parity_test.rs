@@ -77,6 +77,10 @@ const EXPECTED_FILTERED_ARTISTS: &[&str] = &["Autechre", "Jessica Pratt", "Stere
 
 fn set_up_imported_db(db_url: &str) -> postgres::Client {
     let mut client = postgres::Client::connect(db_url, postgres::NoTls).unwrap();
+    // apply_schema is idempotent (CREATE TABLE IF NOT EXISTS). Drop first
+    // to give each test a clean slate; otherwise rows from a prior test would
+    // make the (now-idempotent) Import step skip every table.
+    musicbrainz_cache::schema::drop_all_tables(&mut client).unwrap();
     musicbrainz_cache::schema::apply_schema(&mut client).unwrap();
     musicbrainz_cache::import::import_all(&mut client, &fixtures_dir()).unwrap();
     client
