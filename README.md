@@ -29,7 +29,24 @@ Options:
     --skip-download                Skip download, use existing files
     --no-filter                    Import all artists without filtering
     --dump-url <DUMP_URL>          Override dump URL (default: auto-detect latest)
+    --resume                       Resume from a prior interrupted run by reading the state file
+    --state-file <STATE_FILE>      Path to the pipeline state file [default: ./state]
 ```
+
+## Resume
+
+The pipeline persists per-step completion to a state file (`--state-file`, default `./state`) after each successful step. To recover from a crashed or interrupted run, re-invoke the binary with `--resume`: previously-completed steps log a "Skipping ..." message and are not re-executed; the run picks up at the first incomplete step and continues to completion.
+
+State semantics:
+
+| `--resume` | state file exists | Behavior |
+|---|---|---|
+| no  | no  | Fresh run; state file is created during the run. |
+| no  | yes | Refused with an error. Pass `--resume` to continue, or remove the file to start fresh. This avoids accidentally clobbering a prior run's progress. |
+| yes | no  | Logs a warning and starts fresh; state file is created during the run. |
+| yes | yes | Loads completed steps and resumes; remaining steps execute and update the file. |
+
+Only the database-mutating steps (Schema, Import, Filter, Indexes, Analyze) participate in resume. The Download step is governed separately by `--skip-download` and is naturally idempotent (existing archives are reused). With `--no-filter`, the Filter step is recorded as complete without running so subsequent steps can advance during a later resume.
 
 ## Pipeline Steps
 
