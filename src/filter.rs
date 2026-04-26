@@ -193,8 +193,15 @@ pub fn prune_to_matching(
     swaps.push(save_kept(client, "mb_gender", "TRUE")?);
 
     // Phase 2: Truncate all tables in one statement.
+    //
+    // `mb_release` is included even though we don't import or filter it: the schema
+    // declares an FK from `mb_release.artist_credit` to `mb_artist_credit(id)`, and
+    // PostgreSQL refuses to TRUNCATE a referenced table unless every referencing
+    // table is in the same TRUNCATE statement. Listing it here keeps the table
+    // empty (its production state) and satisfies PG's atomic FK check.
     log::info!("Phase 2: truncating tables...");
-    let all_tables: Vec<&str> = swaps.iter().map(|(t, _, _)| t.as_str()).collect();
+    let mut all_tables: Vec<&str> = swaps.iter().map(|(t, _, _)| t.as_str()).collect();
+    all_tables.push("mb_release");
     client.batch_execute(&format!("TRUNCATE {}", all_tables.join(", ")))?;
 
     // Phase 3: Re-insert kept rows.
