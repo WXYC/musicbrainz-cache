@@ -28,7 +28,9 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not _HAS_WXYC_ETL, reason="wxyc-etl not installed")
 
-# Canonical WXYC example artists (pre-normalized, matching CLAUDE.md example data)
+# A 16-name subset of the canonical WXYC artist pool (`wxycCanonicalArtistNames`
+# in @wxyc/shared, also documented in the org-level CLAUDE.md). Names are
+# pre-normalized to match the form `normalize_artist_name` produces.
 LIBRARY_ARTISTS = {
     "autechre",
     "stereolab",
@@ -59,15 +61,13 @@ class TestNormalizeParity:
             "Autechre",
             "STEREOLAB",
             "Cat Power",
-            # Diacritics / NFKD
-            "Björk",
-            "Café Tacvba",
-            "Sigur Rós",
-            "Ólafur Arnalds",
-            "José González",
-            # Combining characters
-            "Bjo\u0308rk",  # 'o' + combining diaeresis
-            "Rene\u0301e",  # 'e' + combining acute
+            # Diacritics / NFKD (drawn from canonical WXYC artists with non-ASCII names)
+            "Nilüfer Yanya",  # ü
+            "Hermanos Gutiérrez",  # é
+            "Csillagrablók",  # ó
+            # Combining characters (NFD form of canonical names)
+            "Nilu\u0308fer Yanya",  # 'u' + combining diaeresis (NFD of Nilüfer Yanya)
+            "Hermanos Gutie\u0301rrez",  # 'e' + combining acute (NFD of Gutiérrez)
             # CJK (should pass through unchanged)
             "大貫妙子",
             "坂本龍一",
@@ -89,31 +89,33 @@ class TestNormalizeParity:
 
     def test_batch_normalize_matches_single(self) -> None:
         """batch_normalize() must produce same results as individual normalize_artist_name() calls."""
-        names = ["Autechre", "Björk", "  Cat Power  ", "大貫妙子", ""]
+        names = ["Autechre", "Nilüfer Yanya", "  Cat Power  ", "大貫妙子", ""]
         batch_results = batch_normalize(names)
         single_results = [normalize_artist_name(n) for n in names]
         assert batch_results == single_results
 
 
-# Simulated DB rows: (id, name)
+# Simulated DB rows: (id, name). All artist names are drawn from the canonical
+# WXYC pool; rows 4/5/6/8/15/17 are NOT in the LIBRARY_ARTISTS test subset
+# above, so they should fail to match (verifying the filter is set-bounded).
 MB_ARTIST_ROWS = [
     (1, "Autechre"),
     (2, "STEREOLAB"),
     (3, "Cat Power"),
-    (4, "Radiohead"),
-    (5, "The Beatles"),
-    (6, "Led Zeppelin"),
+    (4, "Yo La Tengo"),  # canonical, not in test library subset
+    (5, "Animal Collective"),  # canonical, not in test library subset
+    (6, "Tinariwen"),  # canonical, not in test library subset
     (7, "Jessica Pratt"),
-    (8, "Björk"),  # diacritics — not in library set
+    (8, "Nilüfer Yanya"),  # diacritics — canonical, not in test library subset
     (9, "Chuquimamani-Condori"),
     (10, "Duke Ellington"),
     (11, "Juana Molina"),
     (12, "Father John Misty"),
     (13, "  Cat Power  "),  # whitespace variant
     (14, ""),  # empty string
-    (15, "Café Tacvba"),  # diacritics — not in library set
+    (15, "Csillagrablók"),  # diacritics — canonical, not in test library subset
     (16, "Prince Jammy"),
-    (17, "Bjo\u0308rk"),  # combining diaeresis form — not in library set (normalizes to "bjork")
+    (17, "Nilu\u0308fer Yanya"),  # combining diaeresis form — normalizes to "nilufer yanya"
 ]
 
 # Simulated alias rows: (artist_id, alias_name)
@@ -158,10 +160,10 @@ class TestBatchFilterParity:
         assert matches == {1, 2, 3, 7, 9, 10, 11, 12, 13, 16}
 
     def test_non_matches(self) -> None:
-        """Verify non-library artists don't match."""
+        """Verify canonical artists outside this test's library subset don't match."""
         matches = _rust_filter(MB_ARTIST_ROWS, LIBRARY_ARTISTS)
-        # Radiohead(4), Beatles(5), Led Zeppelin(6), Björk(8), empty(14),
-        # Café Tacvba(15), Björk combining(17) should NOT match
+        # Yo La Tengo(4), Animal Collective(5), Tinariwen(6), Nilüfer Yanya(8),
+        # empty(14), Csillagrablók(15), Nilüfer Yanya NFD(17) should NOT match
         for non_match_id in [4, 5, 6, 8, 14, 15, 17]:
             assert non_match_id not in matches
 
