@@ -2,6 +2,8 @@
 
 Rust binary that builds a WXYC-filtered MusicBrainz cache database. Downloads MusicBrainz data dumps, imports 14 table types into PostgreSQL, filters to WXYC library artists, and builds indexes.
 
+This repo is **Rust-only**. The pipeline previously lived in `scripts/*.py` (filter_artists, import_tsv, run_pipeline, download_dump) but was ported to `src/*.rs` in `cdfd453` ("Remove Python code"). Do not reintroduce Python scripts or Python tests under this repo unless the architecture is being deliberately reversed -- the Rust binary is the supported entry point and the Rust test suite (`tests/*.rs`) covers normalization parity (`filter_test`), import row counts vs Python baselines (`parity_test`), filter behavior (`filter_test`), end-to-end import (`import_test`), and idempotency (`idempotency_test`).
+
 ## Architecture
 
 - `src/main.rs` -- CLI orchestrator (clap). Coordinates the pipeline: download -> schema -> import -> filter -> indexes -> analyze. Consumes `PipelineState` (see Resume) so `--resume` skips already-completed steps.
