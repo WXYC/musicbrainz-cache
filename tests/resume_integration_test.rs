@@ -170,9 +170,10 @@ fn test_partial_state_resume_runs_remaining_steps() {
     state.mark_complete(Step::Import);
     state.save(&state_path).unwrap();
 
-    // The seed run already created the secondary indexes; drop them so the
-    // resume's Indexes step can recreate them without "already exists" errors.
-    // (`schema::create_indexes` does not use IF NOT EXISTS by design.)
+    // create_indexes is idempotent (CREATE INDEX IF NOT EXISTS), so we
+    // could leave the indexes in place. We drop them here only to verify
+    // the resume's Indexes step actually re-creates them, not because it
+    // would fail otherwise.
     drop_mb_indexes(&db_url);
 
     // Resume: Schema + Import skipped, Filter/Indexes/Analyze run.

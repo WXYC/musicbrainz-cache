@@ -71,8 +71,25 @@ EXPECTED_COUNTS = {
 }
 
 
+def _drop_all_mb_tables(conn: psycopg.Connection) -> None:
+    """Drop every mb_* table to give the test class a clean slate.
+
+    create_database.sql is now idempotent (CREATE TABLE IF NOT EXISTS) so it
+    no longer wipes existing data. Tests that want a fresh schema must drop
+    explicitly first.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename LIKE 'mb_%'"
+        )
+        for (table,) in cur.fetchall():
+            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+
+
 def _apply_schema(conn: psycopg.Connection) -> None:
-    """Apply the database schema."""
+    """Drop existing mb_* tables and apply the database schema."""
+    _drop_all_mb_tables(conn)
     with conn.cursor() as cur:
         cur.execute(SCHEMA_DIR.joinpath("create_database.sql").read_text())
 

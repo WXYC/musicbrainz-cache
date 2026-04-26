@@ -1,62 +1,45 @@
 -- MusicBrainz cache schema for WXYC genre/area analysis.
 -- Imports a subset of MusicBrainz tables relevant to artist classification.
 -- Table prefix mb_ to avoid conflicts when sharing a PostgreSQL instance.
+--
+-- Idempotency: every statement is re-runnable. Re-applying the schema against
+-- a populated database is a no-op and does NOT drop existing data. This is a
+-- requirement of the `--resume` flow (see CLAUDE.md "Resume safety"). Tests:
+-- tests/idempotency_test.rs.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
--- Drop in FK-safe order (children first)
-DROP TABLE IF EXISTS mb_l_release_url CASCADE;
-DROP TABLE IF EXISTS mb_l_release_group_url CASCADE;
-DROP TABLE IF EXISTS mb_release CASCADE;
-DROP TABLE IF EXISTS mb_link CASCADE;
-DROP TABLE IF EXISTS mb_link_type CASCADE;
-DROP TABLE IF EXISTS mb_url CASCADE;
-DROP TABLE IF EXISTS mb_track CASCADE;
-DROP TABLE IF EXISTS mb_medium CASCADE;
-DROP TABLE IF EXISTS mb_recording CASCADE;
-DROP TABLE IF EXISTS mb_artist_tag CASCADE;
-DROP TABLE IF EXISTS mb_artist_credit_name CASCADE;
-DROP TABLE IF EXISTS mb_release_group CASCADE;
-DROP TABLE IF EXISTS mb_artist_credit CASCADE;
-DROP TABLE IF EXISTS mb_artist_alias CASCADE;
-DROP TABLE IF EXISTS mb_artist CASCADE;
-DROP TABLE IF EXISTS mb_country_area CASCADE;
-DROP TABLE IF EXISTS mb_area CASCADE;
-DROP TABLE IF EXISTS mb_area_type CASCADE;
-DROP TABLE IF EXISTS mb_gender CASCADE;
-DROP TABLE IF EXISTS mb_tag CASCADE;
-
 -- Reference tables
 
-CREATE TABLE mb_area_type (
+CREATE TABLE IF NOT EXISTS mb_area_type (
     id          integer PRIMARY KEY,
     name        text NOT NULL
 );
 
-CREATE TABLE mb_gender (
+CREATE TABLE IF NOT EXISTS mb_gender (
     id          integer PRIMARY KEY,
     name        text NOT NULL
 );
 
-CREATE TABLE mb_tag (
+CREATE TABLE IF NOT EXISTS mb_tag (
     id          integer PRIMARY KEY,
     name        text NOT NULL
 );
 
-CREATE TABLE mb_area (
+CREATE TABLE IF NOT EXISTS mb_area (
     id          integer PRIMARY KEY,
     name        text NOT NULL,
     type        integer REFERENCES mb_area_type(id)
 );
 
-CREATE TABLE mb_country_area (
+CREATE TABLE IF NOT EXISTS mb_country_area (
     area        integer PRIMARY KEY REFERENCES mb_area(id)
 );
 
 -- Core artist tables
 
-CREATE TABLE mb_artist (
+CREATE TABLE IF NOT EXISTS mb_artist (
     id          integer PRIMARY KEY,
     name        text NOT NULL,
     sort_name   text NOT NULL,
@@ -67,7 +50,7 @@ CREATE TABLE mb_artist (
     comment     text NOT NULL DEFAULT ''
 );
 
-CREATE TABLE mb_artist_alias (
+CREATE TABLE IF NOT EXISTS mb_artist_alias (
     id          integer PRIMARY KEY,
     artist      integer NOT NULL REFERENCES mb_artist(id) ON DELETE CASCADE,
     name        text NOT NULL,
@@ -77,7 +60,7 @@ CREATE TABLE mb_artist_alias (
     primary_for_locale boolean NOT NULL DEFAULT false
 );
 
-CREATE TABLE mb_artist_tag (
+CREATE TABLE IF NOT EXISTS mb_artist_tag (
     artist      integer NOT NULL REFERENCES mb_artist(id) ON DELETE CASCADE,
     tag         integer NOT NULL REFERENCES mb_tag(id),
     count       integer NOT NULL,
@@ -86,13 +69,13 @@ CREATE TABLE mb_artist_tag (
 
 -- Release matching tables
 
-CREATE TABLE mb_artist_credit (
+CREATE TABLE IF NOT EXISTS mb_artist_credit (
     id          integer PRIMARY KEY,
     name        text NOT NULL,
     artist_count smallint NOT NULL
 );
 
-CREATE TABLE mb_artist_credit_name (
+CREATE TABLE IF NOT EXISTS mb_artist_credit_name (
     artist_credit integer NOT NULL REFERENCES mb_artist_credit(id) ON DELETE CASCADE,
     position    smallint NOT NULL,
     artist      integer NOT NULL REFERENCES mb_artist(id) ON DELETE CASCADE,
@@ -100,7 +83,7 @@ CREATE TABLE mb_artist_credit_name (
     join_phrase text NOT NULL DEFAULT ''
 );
 
-CREATE TABLE mb_release_group (
+CREATE TABLE IF NOT EXISTS mb_release_group (
     id          integer PRIMARY KEY,
     name        text NOT NULL,
     artist_credit integer NOT NULL REFERENCES mb_artist_credit(id),
@@ -109,7 +92,7 @@ CREATE TABLE mb_release_group (
 
 -- Recording tables (for AcousticBrainz feature lookup)
 
-CREATE TABLE mb_recording (
+CREATE TABLE IF NOT EXISTS mb_recording (
     id          integer PRIMARY KEY,
     gid         uuid NOT NULL,          -- MusicBrainz recording MBID
     name        text NOT NULL,
@@ -117,14 +100,14 @@ CREATE TABLE mb_recording (
     length      integer                  -- milliseconds
 );
 
-CREATE TABLE mb_medium (
+CREATE TABLE IF NOT EXISTS mb_medium (
     id          integer PRIMARY KEY,
     release     integer,
     position    integer,
     format      integer
 );
 
-CREATE TABLE mb_track (
+CREATE TABLE IF NOT EXISTS mb_track (
     id          integer PRIMARY KEY,
     recording   integer NOT NULL REFERENCES mb_recording(id),
     medium      integer NOT NULL REFERENCES mb_medium(id),
@@ -136,25 +119,25 @@ CREATE TABLE mb_track (
 
 -- URL/streaming tables
 
-CREATE TABLE mb_url (
+CREATE TABLE IF NOT EXISTS mb_url (
     id          integer PRIMARY KEY,
     gid         uuid NOT NULL,
     url         text NOT NULL
 );
 
-CREATE TABLE mb_link_type (
+CREATE TABLE IF NOT EXISTS mb_link_type (
     id          integer PRIMARY KEY,
     name        text NOT NULL,
     entity_type0 text NOT NULL,
     entity_type1 text NOT NULL
 );
 
-CREATE TABLE mb_link (
+CREATE TABLE IF NOT EXISTS mb_link (
     id          integer PRIMARY KEY,
     link_type   integer NOT NULL REFERENCES mb_link_type(id)
 );
 
-CREATE TABLE mb_release (
+CREATE TABLE IF NOT EXISTS mb_release (
     id              integer PRIMARY KEY,
     gid             uuid NOT NULL,
     name            text NOT NULL,
@@ -162,14 +145,14 @@ CREATE TABLE mb_release (
     release_group   integer NOT NULL REFERENCES mb_release_group(id)
 );
 
-CREATE TABLE mb_l_release_group_url (
+CREATE TABLE IF NOT EXISTS mb_l_release_group_url (
     id          integer PRIMARY KEY,
     link        integer NOT NULL REFERENCES mb_link(id),
     release_group integer NOT NULL REFERENCES mb_release_group(id),
     url         integer NOT NULL REFERENCES mb_url(id)
 );
 
-CREATE TABLE mb_l_release_url (
+CREATE TABLE IF NOT EXISTS mb_l_release_url (
     id          integer PRIMARY KEY,
     link        integer NOT NULL REFERENCES mb_link(id),
     release     integer NOT NULL REFERENCES mb_release(id),

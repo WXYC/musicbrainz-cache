@@ -137,6 +137,13 @@ pub static DERIVED_TABLES: &[&str] = &["artist_tag", "tag"];
 ///
 /// Reads the full-width TSV, extracts only the columns we need,
 /// and streams them to PostgreSQL via COPY.
+///
+/// Idempotent: if the destination table already has rows, this function
+/// logs a skip message and returns 0 without re-importing. This makes the
+/// Import step safe to re-run after a partial completion (e.g. when the
+/// pipeline crashed mid-Import and `--resume` re-invokes the step). The
+/// alternative -- COPYing into a populated table -- would either trip
+/// PRIMARY KEY UniqueViolations or duplicate rows on tables without a PK.
 pub fn import_table(
     client: &mut postgres::Client,
     spec: &TableSpec,
@@ -145,6 +152,19 @@ pub fn import_table(
     let tsv_path = data_dir.join(spec.dump_file);
     if !tsv_path.exists() {
         log::warn!("File not found, skipping: {}", tsv_path.display());
+        return Ok(0);
+    }
+
+    // Idempotency guard: skip tables that are already populated. See doc above.
+    let existing: i64 = client
+        .query_one(&format!("SELECT COUNT(*) FROM {}", spec.table), &[])?
+        .get(0);
+    if existing > 0 {
+        log::info!(
+            "  {}: {} rows already present, skipping import (idempotent)",
+            spec.table,
+            existing,
+        );
         return Ok(0);
     }
 
