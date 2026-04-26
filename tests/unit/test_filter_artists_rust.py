@@ -65,6 +65,9 @@ class TestNormalizeParity:
             "Nilüfer Yanya",  # ü
             "Hermanos Gutiérrez",  # é
             "Csillagrablók",  # ó
+            "Sonido Dueñez",  # ñ — combining-tilde decomposition (canonical via @wxyc/shared#81)
+            "Aşıq Altay",  # multi-diacritic Turkish (ş + ı; canonical via @wxyc/shared#81)
+            "GIDEÖN",  # capital Ö mid-word (canonical via @wxyc/shared#84)
             # Combining characters (NFD form of canonical names)
             "Nilu\u0308fer Yanya",  # 'u' + combining diaeresis (NFD of Nilüfer Yanya)
             "Hermanos Gutie\u0301rrez",  # 'e' + combining acute (NFD of Gutiérrez)
