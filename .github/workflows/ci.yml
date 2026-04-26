@@ -26,7 +26,10 @@ jobs:
       - name: Checkout wxyc-etl at expected relative path
         run: git clone --depth 1 https://github.com/WXYC/wxyc-etl.git "$GITHUB_WORKSPACE/../../../wxyc-etl"
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
+      - name: Run tests (incl. local HTTP download tests)
+        env:
+          TEST_DOWNLOAD: "1"
+        run: cargo test
 
   test-postgres:
     runs-on: ubuntu-latest
