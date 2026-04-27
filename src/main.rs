@@ -4,6 +4,7 @@ use musicbrainz_cache::state::{PipelineState, Step};
 use musicbrainz_cache::{download, filter, import, schema};
 use std::path::{Path, PathBuf};
 use wxyc_etl::cli::{resolve_database_url, DatabaseArgs, ImportArgs, ResumableBuildArgs};
+use wxyc_etl::logger::{self, LoggerConfig};
 
 const DATABASE_ENV_NAME: &str = "DATABASE_URL_MUSICBRAINZ";
 
@@ -340,10 +341,28 @@ fn apply_legacy_shim(mut args: Vec<String>) -> Vec<String> {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
     let args = apply_legacy_shim(std::env::args().collect());
     let cli = Cli::parse_from(args);
+
+    let tool = match &cli.command {
+        Command::Build(_) => "musicbrainz-cache build",
+        Command::Import(_) => "musicbrainz-cache import",
+    };
+    // TODO(sentry-dsn): provision SENTRY_DSN in the runtime env (Railway /
+    // GitHub Actions / EC2) so panics are forwarded. Without it Sentry stays
+    // inactive but JSON logging still initializes.
+    let _logger_guard = logger::init(LoggerConfig {
+        repo: "musicbrainz-cache",
+        tool,
+        sentry_dsn: None,
+        run_id: None,
+    });
+    // Hold a root span entered for the lifetime of `main` so every emitted
+    // event (including log::* events bridged via tracing_log::LogTracer)
+    // carries the cross-pipeline `repo` and `tool` tags.
+    let _root_span =
+        tracing::info_span!("musicbrainz-cache", repo = "musicbrainz-cache", tool).entered();
+    tracing::info!("starting");
 
     match cli.command {
         Command::Build(cmd) => run_build(cmd),

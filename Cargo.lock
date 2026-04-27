@@ -1234,7 +1234,6 @@ dependencies = [
  "anyhow",
  "bzip2",
  "clap",
- "env_logger",
  "log",
  "postgres",
  "regex-lite",
@@ -1243,6 +1242,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tiny_http",
+ "tracing",
  "wxyc-etl",
 ]
 
