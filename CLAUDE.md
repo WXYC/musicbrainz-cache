@@ -12,7 +12,8 @@ This repo is **Rust-only**. The pipeline previously lived in `scripts/*.py` (fil
 - `src/filter.rs` -- Artist filtering. Loads WXYC library.db (SQLite), matches by normalized name + aliases, prunes via copy-and-swap.
 - `src/schema.rs` -- DDL application (create_database.sql, create_indexes.sql) and ANALYZE.
 - `src/state.rs` -- Pipeline state persistence for resume support. Records completed steps so interrupted runs can resume.
-- `schema/` -- PostgreSQL DDL (14 tables) and secondary indexes (14 indexes).
+- `schema/` -- PostgreSQL DDL (14 tables) and secondary indexes (14 indexes). Applied at runtime by `apply_schema()`. Mirrored as the baseline `migrations/0001_initial.sql` for sqlx-cli (see "Migrations").
+- `migrations/` -- sqlx-cli migration files. `0001_initial.sql` is a snapshot of `schema/*.sql`; future schema changes ship as `0002_*`, `0003_*`, etc. Not yet wired into the deploy path (see "Migrations").
 
 ## Observability
 
@@ -72,6 +73,39 @@ Uses copy-and-swap instead of DELETE to avoid dead tuples. Steps:
 2. Save kept rows for each table into temp tables (cascading from artists -> credits -> recordings -> tracks)
 3. TRUNCATE all tables together (satisfies FK constraints)
 4. Re-insert kept rows from temp tables
+
+## Migrations
+
+Schema evolution uses [`sqlx-cli`](https://crates.io/crates/sqlx-cli). Migration files live in `migrations/` at the repo root and are applied in lex order (`0001_initial.sql`, `0002_*.sql`, ...).
+
+**Status**: the runtime deploy path still applies `schema/create_database.sql` + `schema/create_indexes.sql` via `src/schema.rs::apply_schema()`. `sqlx migrate run` is **not yet wired into the deploy** -- that switch lands in [WXYC/wxyc-etl#56](https://github.com/WXYC/wxyc-etl/issues/56). The baseline file exists today so future schema changes can ship as numbered migrations starting at `0002_*` instead of edit-and-rebuild.
+
+**Install the CLI** (not a Cargo dep -- runtime uses the `postgres` crate):
+
+```bash
+cargo install sqlx-cli --no-default-features --features postgres
+```
+
+**Add a new migration**:
+
+```bash
+# Generates migrations/<timestamp>_<name>.sql (or 0002_<name>.sql with --sequential)
+sqlx migrate add --source migrations <name>
+```
+
+**Run migrations against an empty Postgres** (smoke test):
+
+```bash
+docker compose up -d
+createdb -h localhost -p 5434 -U musicbrainz musicbrainz_migrations_test
+sqlx migrate run \
+    --database-url postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz_migrations_test \
+    --source migrations
+```
+
+**Stamping prod**: existing prod databases already have the schema applied via `apply_schema()`. When #56 flips the deploy to `sqlx migrate run`, the first deploy will run `sqlx migrate run --target-version 0` (or equivalent insert into `_sqlx_migrations`) so prod is recorded at `0001_initial` without re-applying. Until then, do not run `sqlx migrate run` against prod -- it would no-op on the schema (every statement is `IF NOT EXISTS`) but would create the `_sqlx_migrations` tracking table outside of the planned stamping flow.
+
+**Idempotency**: every statement in `0001_initial.sql` is re-runnable (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Subsequent migrations should aim for the same property where reasonable so re-applying after partial failure doesn't corrupt state.
 
 ## Resume
 
