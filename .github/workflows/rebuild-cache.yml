@@ -1,0 +1,71 @@
+name: Rebuild Cache
+
+on:
+  schedule:
+    # 06:00 UTC on the 5th of each month. Offset from discogs-etl's monthly
+    # rebuild so two ~tens-of-GB jobs don't co-run.
+    - cron: "0 6 5 * *"
+  workflow_dispatch:
+    inputs:
+      dump_url:
+        description: "Override MusicBrainz dump URL (optional)"
+        required: false
+      skip_download:
+        description: "Skip download, reuse mbdump in $DATA_DIR"
+        type: boolean
+        default: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    # The full pipeline downloads ~6 GB compressed, expands to ~30 GB on disk,
+    # and imports + filters + indexes against PostgreSQL. Allow plenty of
+    # headroom; tighten this once we have real production timings.
+    # TODO(runner-capacity): if monthly runs start exceeding the GitHub-hosted
+    # runner's 6h job limit or 14 GB RAM, move this to a self-hosted runner.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wxyc-etl at expected relative path
+        run: git clone --depth 1 https://github.com/WXYC/wxyc-etl.git "$GITHUB_WORKSPACE/../../../wxyc-etl"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install parallel bzip2 decompressor
+        run: sudo apt-get update && sudo apt-get install -y lbzip2
+
+      - name: Build musicbrainz-cache
+        run: cargo build --release
+
+      - name: Fetch library.db from library-metadata-lookup release
+        # library.db is published to the streaming-data-v1 release tag on
+        # WXYC/library-metadata-lookup by discogs-etl's daily Sync Library job.
+        run: |
+          mkdir -p data
+          gh release download streaming-data-v1 \
+            --repo WXYC/library-metadata-lookup \
+            --pattern library.db \
+            --dir data
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Run musicbrainz-cache build
+        run: |
+          set -euo pipefail
+          args=(build --data-dir data --library-db data/library.db --state-file data/state.json)
+          if [[ -n "${DUMP_URL_INPUT:-}" ]]; then
+            args+=(--dump-url "$DUMP_URL_INPUT")
+          fi
+          if [[ "${SKIP_DOWNLOAD_INPUT:-false}" == "true" ]]; then
+            args+=(--skip-download)
+          fi
+          ./target/release/musicbrainz-cache "${args[@]}"
+        env:
+          DATABASE_URL_MUSICBRAINZ: ${{ secrets.DATABASE_URL_MUSICBRAINZ }}
+          # TODO(sentry-dsn): provision SENTRY_DSN as a repo/org secret so
+          # cron failures forward to Sentry. Without it, JSON logs still ship
+          # to the workflow log; Sentry stays inactive.
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          DUMP_URL_INPUT: ${{ inputs.dump_url }}
+          SKIP_DOWNLOAD_INPUT: ${{ inputs.skip_download }}
