@@ -12,30 +12,76 @@ docker compose up -d
 cargo build --release
 
 # Run the full pipeline
-./target/release/musicbrainz-cache \
+export DATABASE_URL_MUSICBRAINZ=postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz
+./target/release/musicbrainz-cache build \
     --data-dir data/ \
     --library-db data/library.db
 ```
 
 ## Usage
 
+`musicbrainz-cache` exposes two subcommands matching the standard WXYC cache-builder shape:
+
 ```
-musicbrainz-cache [OPTIONS] --data-dir <DATA_DIR>
+musicbrainz-cache build [OPTIONS]    # full pipeline (resumable)
+musicbrainz-cache import [OPTIONS]   # download + schema + TSV import only
+```
+
+### `build` — full pipeline
+
+Download the dump, apply the schema, import TSVs, filter to the WXYC library, build indexes, and ANALYZE. Each database-mutating step is idempotent and resumable via `--resume`.
+
+```
+musicbrainz-cache build [OPTIONS]
 
 Options:
-    --data-dir <DATA_DIR>          Directory for downloads and extracted files
-    --library-db <LIBRARY_DB>      Path to library.db (required unless --no-filter)
-    --database-url <DATABASE_URL>  PostgreSQL URL [default: postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz]
-    --skip-download                Skip download, use existing files
-    --no-filter                    Import all artists without filtering
-    --dump-url <DUMP_URL>          Override dump URL (default: auto-detect latest)
-    --resume                       Resume from a prior interrupted run by reading the state file
-    --state-file <STATE_FILE>      Path to the pipeline state file [default: ./state]
+    --database-url <URL>           PostgreSQL URL (falls back to DATABASE_URL_MUSICBRAINZ)
+    --data-dir <PATH>              Working data directory [default: ./data]
+    --state-file <PATH>            Path to the pipeline state file [default: ./state.json]
+    --resume                       Resume from the existing state file
+    --library-db <PATH>            Path to library.db (required unless --no-filter)
+    --skip-download                Skip download, use existing files in --data-dir
+    --no-filter                    Import all artists without filtering to the WXYC library
+    --dump-url <URL>               Override dump URL (default: auto-detect latest)
 ```
+
+### `import` — fresh dump load
+
+Download (unless `--skip-download`), apply the schema, and import the dump TSVs. Use `--fresh` to drop the `mb_*` tables before importing.
+
+```
+musicbrainz-cache import [OPTIONS]
+
+Options:
+    --database-url <URL>           PostgreSQL URL (falls back to DATABASE_URL_MUSICBRAINZ)
+    --data-dir <PATH>              Working data directory [default: ./data]
+    --fresh                        Drop existing mb_* tables before importing
+    --skip-download                Skip download, use existing files in --data-dir
+    --dump-url <URL>               Override dump URL (default: auto-detect latest)
+```
+
+### Database URL
+
+Every cache builder follows the same `--database-url` convention: the flag wins, otherwise the tool's environment variable (`DATABASE_URL_MUSICBRAINZ` for this binary) is used. If neither is set, the binary errors out.
+
+```bash
+# Either of these works:
+export DATABASE_URL_MUSICBRAINZ=postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz
+musicbrainz-cache build --data-dir data/ --library-db data/library.db
+
+musicbrainz-cache build \
+    --database-url postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz \
+    --data-dir data/ \
+    --library-db data/library.db
+```
+
+### Legacy invocation (deprecated)
+
+Pre-#24 invocations without a subcommand (`musicbrainz-cache --data-dir ... --library-db ...`) still work but log a deprecation warning to stderr; they are rewritten internally to `musicbrainz-cache build ...`. New scripts should always use the explicit `build` or `import` subcommand.
 
 ## Resume
 
-The pipeline persists per-step completion to a state file (`--state-file`, default `./state`) after each successful step. To recover from a crashed or interrupted run, re-invoke the binary with `--resume`: previously-completed steps log a "Skipping ..." message and are not re-executed; the run picks up at the first incomplete step and continues to completion.
+The `build` pipeline persists per-step completion to a state file (`--state-file`, default `./state.json`) after each successful step. To recover from a crashed or interrupted run, re-invoke with `--resume`: previously-completed steps log a "Skipping ..." message and are not re-executed; the run picks up at the first incomplete step and continues to completion.
 
 State semantics:
 
@@ -51,7 +97,7 @@ Only the database-mutating steps (Schema, Import, Filter, Indexes, Analyze) part
 ## Pipeline Steps
 
 1. **Download** -- Fetches `mbdump.tar.bz2` and `mbdump-derived.tar.bz2` from data.metabrainz.org. Uses parallel decompression via lbzip2/pbzip2 when available.
-2. **Schema** -- Applies `schema/create_database.sql` (DROP + CREATE for 14 tables).
+2. **Schema** -- Applies `schema/create_database.sql` (CREATE TABLE IF NOT EXISTS for 14 tables).
 3. **Import** -- Reads headerless TSV files, extracts needed columns by positional index, streams to PostgreSQL via COPY. 14 tables imported in FK dependency order.
 4. **Filter** -- Matches MusicBrainz artists against WXYC library.db by normalized name and aliases. Prunes non-matching data using copy-and-swap for efficiency.
 5. **Index** -- Creates 14 secondary indexes from `schema/create_indexes.sql`.

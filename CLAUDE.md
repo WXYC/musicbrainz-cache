@@ -6,7 +6,7 @@ This repo is **Rust-only**. The pipeline previously lived in `scripts/*.py` (fil
 
 ## Architecture
 
-- `src/main.rs` -- CLI orchestrator (clap). Coordinates the pipeline: download -> schema -> import -> filter -> indexes -> analyze. Consumes `PipelineState` (see Resume) so `--resume` skips already-completed steps.
+- `src/main.rs` -- CLI orchestrator (clap). Exposes the standard WXYC cache-builder subcommands: `build` (full pipeline, resumable via `--resume`) and `import` (download + schema + TSV load, with `--fresh` to drop tables first). Shared `--database-url` / `--data-dir` / `--state-file` / `--resume` / `--fresh` come from `wxyc_etl::cli` (`DatabaseArgs`, `ResumableBuildArgs`, `ImportArgs`); the database URL falls back to `DATABASE_URL_MUSICBRAINZ` via `wxyc_etl::cli::resolve_database_url`. Legacy invocations without a subcommand are rewritten to `build` with a stderr deprecation warning. `build` consumes `PipelineState` so `--resume` skips already-completed steps.
 - `src/download.rs` -- HTTP download (`reqwest`) and tar.bz2 extraction (parallel `lbzip2`/`pbzip2` with Rust `bzip2`+`tar` fallback).
 - `src/import.rs` -- TSV import. Reads headerless MusicBrainz dump files, extracts columns by positional index, streams to PostgreSQL via COPY.
 - `src/filter.rs` -- Artist filtering. Loads WXYC library.db (SQLite), matches by normalized name + aliases, prunes via copy-and-swap.
@@ -35,7 +35,8 @@ cargo test
 cargo test -- --ignored --test-threads=1
 
 # Run the pipeline with fixture data
-cargo run -- --data-dir tests/fixtures --library-db tests/fixtures/library.db --skip-download
+DATABASE_URL_MUSICBRAINZ=postgresql://musicbrainz:musicbrainz@localhost:5434/musicbrainz \
+    cargo run -- build --data-dir tests/fixtures --library-db tests/fixtures/library.db --skip-download
 
 # Lint
 cargo clippy -- -D warnings -A clippy::manual_is_multiple_of
@@ -58,7 +59,7 @@ Uses copy-and-swap instead of DELETE to avoid dead tuples. Steps:
 
 ## Resume
 
-`main.rs` consumes `PipelineState` (`src/state.rs`). Each database-mutating step (Schema, Import, Filter, Indexes, Analyze) is wrapped by a `run_step` helper that checks `state.is_complete(...)` before running and persists the state file (default `./state`, override with `--state-file`) immediately on success. The Download step is not part of the state machine -- it has its own `--skip-download` flag and is naturally idempotent.
+`main.rs` consumes `PipelineState` (`src/state.rs`) inside the `build` subcommand. Each database-mutating step (Schema, Import, Filter, Indexes, Analyze) is wrapped by a `run_step` helper that checks `state.is_complete(...)` before running and persists the state file (default `./state.json`, override with `--state-file`) immediately on success. The Download step is not part of the state machine -- it has its own `--skip-download` flag and is naturally idempotent. The `import` subcommand runs a one-shot download + schema + TSV load and does not use a state file.
 
 CLI contract:
 
