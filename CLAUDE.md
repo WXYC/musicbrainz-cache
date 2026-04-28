@@ -33,7 +33,7 @@ The full rebuild runs on GitHub Actions via `.github/workflows/rebuild-cache.yml
 
 ## Dependencies
 
-- **wxyc-etl** (path dependency) -- `text::normalize_artist_name` for name normalization, `schema::musicbrainz` for table constants, `logger::init` for Sentry + structured JSON logs.
+- **wxyc-etl** (`= "0.1.0"`, crates.io) -- `text::normalize_artist_name` for name normalization, `schema::musicbrainz` for table constants, `logger::init` for Sentry + structured JSON logs.
 - **postgres** -- Synchronous PostgreSQL client (matches wxyc-etl).
 - **rusqlite** -- SQLite for reading library.db.
 - **reqwest** (blocking) -- HTTP client for MusicBrainz dump downloads.
