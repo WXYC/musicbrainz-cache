@@ -78,7 +78,7 @@ Uses copy-and-swap instead of DELETE to avoid dead tuples. Steps:
 
 Schema evolution uses [`sqlx-cli`](https://crates.io/crates/sqlx-cli). Migration files live in `migrations/` at the repo root and are applied in lex order (`0001_initial.sql`, `0002_*.sql`, ...).
 
-**Status**: the runtime deploy path still applies `schema/create_database.sql` + `schema/create_indexes.sql` via `src/schema.rs::apply_schema()`. `sqlx migrate run` is **not yet wired into the deploy** -- that switch lands in [WXYC/wxyc-etl#56](https://github.com/WXYC/wxyc-etl/issues/56). The baseline file exists today so future schema changes can ship as numbered migrations starting at `0002_*` instead of edit-and-rebuild.
+**Status**: `sqlx migrate run` is wired into the monthly rebuild workflow (`.github/workflows/rebuild-cache.yml`) and runs before the rebuild itself. Every migration is idempotent (`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`), so applying against a populated prod DB is a no-op other than populating `_sqlx_migrations`. Incremental schema changes added between rebuilds are picked up on the next monthly run; the runtime `src/schema.rs::apply_schema()` path is still the source of truth for fresh-rebuild DDL and stays in sync because every new migration is also written into `schema/create_database.sql` / `schema/create_indexes.sql`.
 
 **Install the CLI** (not a Cargo dep -- runtime uses the `postgres` crate):
 
@@ -103,9 +103,9 @@ sqlx migrate run \
     --source migrations
 ```
 
-**Stamping prod**: existing prod databases already have the schema applied via `apply_schema()`. When #56 flips the deploy to `sqlx migrate run`, the first deploy will run `sqlx migrate run --target-version 0` (or equivalent insert into `_sqlx_migrations`) so prod is recorded at `0001_initial` without re-applying. Until then, do not run `sqlx migrate run` against prod -- it would no-op on the schema (every statement is `IF NOT EXISTS`) but would create the `_sqlx_migrations` tracking table outside of the planned stamping flow.
+**Idempotency is mandatory**: because the rebuild workflow re-applies every migration on every run, every statement must be re-runnable (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`). This is enforced informally by code review; non-idempotent migrations would error on the second monthly run.
 
-**Idempotency**: every statement in `0001_initial.sql` is re-runnable (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Subsequent migrations should aim for the same property where reasonable so re-applying after partial failure doesn't corrupt state.
+**Adding a schema change**: write a new `migrations/000N_*.sql` AND update the corresponding `schema/*.sql` file so fresh rebuilds (`apply_schema()`) produce the same end-state as the migration sequence. Re-applying both paths against the same DB must be a no-op.
 
 ## Resume
 

@@ -35,6 +35,20 @@ jobs:
       - name: Build musicbrainz-cache
         run: cargo build --release
 
+      # Apply pending sqlx migrations against the production cache before the
+      # rebuild. Every migration under `migrations/` is idempotent
+      # (`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`), so
+      # re-applying against a populated DB is a no-op — the only side effect
+      # is creating / updating the `_sqlx_migrations` history table. New
+      # migrations added between monthly rebuilds get picked up here so
+      # incremental schema changes don't require a 6-hour reimport.
+      - name: Install sqlx-cli
+        run: cargo install --quiet --version 0.8 sqlx-cli --no-default-features --features postgres
+      - name: Apply pending migrations
+        run: sqlx migrate run --source migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_MUSICBRAINZ }}
+
       - name: Fetch library.db from library-metadata-lookup release
         # library.db is published to the streaming-data-v1 release tag on
         # WXYC/library-metadata-lookup by discogs-etl's daily Sync Library job.
