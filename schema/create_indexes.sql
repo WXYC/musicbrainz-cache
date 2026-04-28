@@ -9,6 +9,11 @@ CREATE INDEX IF NOT EXISTS idx_mb_recording_credit ON mb_recording(artist_credit
 CREATE INDEX IF NOT EXISTS idx_mb_track_recording ON mb_track(recording);
 CREATE INDEX IF NOT EXISTS idx_mb_track_medium ON mb_track(medium);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_name_lower ON mb_artist (lower(name));
+-- Trigram GIN index supports the `lower(name) % lower($1)` fuzzy search used by
+-- LML's external-cache fallback (lookup/external_search.py::_MB_ARTIST_FUZZY_SQL).
+-- Without it, `%` falls back to a seq-scan on the full filtered mb_artist table.
+CREATE INDEX IF NOT EXISTS idx_mb_artist_name_lower_trgm
+    ON mb_artist USING GIN (lower(name) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_area ON mb_artist (area);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_alias_artist ON mb_artist_alias (artist);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_alias_name_lower ON mb_artist_alias (lower(name));

@@ -12,7 +12,7 @@ This repo is **Rust-only**. The pipeline previously lived in `scripts/*.py` (fil
 - `src/filter.rs` -- Artist filtering. Loads WXYC library.db (SQLite), matches by normalized name + aliases, prunes via copy-and-swap.
 - `src/schema.rs` -- DDL application (create_database.sql, create_indexes.sql) and ANALYZE.
 - `src/state.rs` -- Pipeline state persistence for resume support. Records completed steps so interrupted runs can resume.
-- `schema/` -- PostgreSQL DDL (14 tables) and secondary indexes (14 indexes). Applied at runtime by `apply_schema()`. Mirrored as the baseline `migrations/0001_initial.sql` for sqlx-cli (see "Migrations").
+- `schema/` -- PostgreSQL DDL (14 tables) and secondary indexes (15 indexes). Applied at runtime by `apply_schema()`. Mirrored as the baseline `migrations/0001_initial.sql` for sqlx-cli (see "Migrations"); subsequent index changes ship as numbered migrations (`0002_*.sql` ...).
 - `migrations/` -- sqlx-cli migration files. `0001_initial.sql` is a snapshot of `schema/*.sql`; future schema changes ship as `0002_*`, `0003_*`, etc. Not yet wired into the deploy path (see "Migrations").
 
 ## Observability
