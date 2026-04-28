@@ -143,5 +143,5 @@ cargo fmt --check
 
 - Rust 1.75+
 - PostgreSQL 16 (via Docker Compose on port 5434)
-- [wxyc-etl](https://github.com/WXYC/wxyc-etl) crate (path dependency at `../../../wxyc-etl/wxyc-etl`)
+- [wxyc-etl](https://crates.io/crates/wxyc-etl) crate (resolved from crates.io; pinned to `0.1.0` in `Cargo.toml`)
 - Optional: lbzip2 or pbzip2 for faster archive extraction
