@@ -100,7 +100,7 @@ Only the database-mutating steps (Schema, Import, Filter, Indexes, Analyze) part
 2. **Schema** -- Applies `schema/create_database.sql` (CREATE TABLE IF NOT EXISTS for 14 tables).
 3. **Import** -- Reads headerless TSV files, extracts needed columns by positional index, streams to PostgreSQL via COPY. 14 tables imported in FK dependency order.
 4. **Filter** -- Matches MusicBrainz artists against WXYC library.db by normalized name and aliases. Prunes non-matching data using copy-and-swap for efficiency.
-5. **Index** -- Creates 14 secondary indexes from `schema/create_indexes.sql`.
+5. **Index** -- Creates 15 secondary indexes from `schema/create_indexes.sql` (includes a `pg_trgm` GIN index on `lower(mb_artist.name)` for LML's fuzzy-search fallback).
 6. **Analyze** -- Runs ANALYZE on all tables for query planner statistics.
 
 ## Tables
