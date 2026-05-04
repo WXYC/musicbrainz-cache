@@ -1239,6 +1239,8 @@ dependencies = [
  "regex-lite",
  "reqwest",
  "rusqlite",
+ "serde",
+ "serde_json",
  "tar",
  "tempfile",
  "tiny_http",
