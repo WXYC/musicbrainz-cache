@@ -2,7 +2,7 @@ use anyhow::Context;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
-use wxyc_etl::text::normalize_artist_name;
+use wxyc_etl::text::to_match_form;
 
 /// Load normalized WXYC artist names from library.db.
 pub fn load_library_artists(library_db: &Path) -> anyhow::Result<HashSet<String>> {
@@ -16,7 +16,7 @@ pub fn load_library_artists(library_db: &Path) -> anyhow::Result<HashSet<String>
     for name in rows {
         let name = name?;
         if !name.is_empty() {
-            artists.insert(normalize_artist_name(&name));
+            artists.insert(to_match_form(&name));
         }
     }
 
@@ -40,7 +40,7 @@ pub fn find_matching_artist_ids(
     for row in client.query("SELECT id, name FROM mb_artist", &[])? {
         let id: i32 = row.get(0);
         let name: &str = row.get(1);
-        if library_artists.contains(&normalize_artist_name(name)) {
+        if library_artists.contains(&to_match_form(name)) {
             matching_ids.insert(id);
         }
         checked += 1;
@@ -60,7 +60,7 @@ pub fn find_matching_artist_ids(
     for row in client.query("SELECT artist, name FROM mb_artist_alias", &[])? {
         let artist_id: i32 = row.get(0);
         let name: &str = row.get(1);
-        if library_artists.contains(&normalize_artist_name(name)) {
+        if library_artists.contains(&to_match_form(name)) {
             matching_ids.insert(artist_id);
         }
     }

@@ -21,8 +21,8 @@ fn db_url() -> String {
 
 #[test]
 fn test_normalize_matches_python() {
-    // Expected values derived from running the Python normalize() function.
-    // Python: unicodedata.normalize("NFKD", name) -> strip combining -> lower -> strip
+    // Expected values mirror the WX-2 Normalizer Charter `to_match_form`:
+    // NFKC -> casefold -> diacritic strip -> Cf strip -> Greek-sigma fold -> trim.
     let cases: &[(&str, &str)] = &[
         ("Autechre", "autechre"),
         ("Stereolab", "stereolab"),
@@ -38,10 +38,10 @@ fn test_normalize_matches_python() {
     ];
 
     for &(input, expected) in cases {
-        let result = wxyc_etl::text::normalize_artist_name(input);
+        let result = wxyc_etl::text::to_match_form(input);
         assert_eq!(
             result, expected,
-            "normalize('{}') = '{}', expected '{}'",
+            "to_match_form('{}') = '{}', expected '{}'",
             input, result, expected,
         );
     }
