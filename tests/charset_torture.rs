@@ -41,11 +41,6 @@ fn expected_failures() -> HashMap<&'static str, &'static str> {
         "tab\there",
         "[mbc:tsv-tab-byte] literal tab is the TSV field separator",
     );
-    // U+0000 is invalid in PG TEXT (SQL standard).
-    m.insert(
-        "null\x00byte",
-        "[mbc:pg-null-byte] PostgreSQL TEXT rejects U+0000 (SQL standard)",
-    );
     // PG COPY ... WITH (FORMAT text) treats backslash as an escape character.
     // The MusicBrainz dumps escape backslashes upstream; if a future MB schema
     // ships unescaped TSV, this test will start failing as an unexpected pass.
