@@ -1,6 +1,21 @@
 use anyhow::Context;
+use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+
+/// Strip U+0000 (NUL) bytes from a string before writing to a PG TEXT column.
+///
+/// PostgreSQL TEXT does not accept U+0000 (SQL standard). Per the org-wide
+/// policy in WXYC/docs#18, every PG TEXT write boundary strips NUL — U+0000
+/// in metadata is corruption, never intent. Returns `Cow::Borrowed` when no
+/// NUL is present so the common case avoids allocating.
+fn strip_nul(s: &str) -> Cow<'_, str> {
+    if s.contains('\0') {
+        Cow::Owned(s.replace('\0', ""))
+    } else {
+        Cow::Borrowed(s)
+    }
+}
 
 /// Mapping from a MusicBrainz dump file to our schema.
 ///
@@ -192,7 +207,11 @@ pub fn import_table(
             if j > 0 {
                 buf.push(b'\t');
             }
-            buf.extend_from_slice(val.as_bytes());
+            // PostgreSQL TEXT rejects U+0000 (SQL standard). Strip at the
+            // write boundary per WXYC/docs#18: U+0000 in metadata is always
+            // corruption, never intent. Cheap and idempotent — the common
+            // case (no NUL) takes the borrowed branch with no allocation.
+            buf.extend_from_slice(strip_nul(val).as_bytes());
         }
         buf.push(b'\n');
         row_count += 1;
