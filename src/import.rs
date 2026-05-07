@@ -207,10 +207,7 @@ pub fn import_table(
             if j > 0 {
                 buf.push(b'\t');
             }
-            // PostgreSQL TEXT rejects U+0000 (SQL standard). Strip at the
-            // write boundary per WXYC/docs#18: U+0000 in metadata is always
-            // corruption, never intent. Cheap and idempotent — the common
-            // case (no NUL) takes the borrowed branch with no allocation.
+            // strip NUL per WXYC/docs#18 — see strip_nul docstring.
             buf.extend_from_slice(strip_nul(val).as_bytes());
         }
         buf.push(b'\n');
@@ -265,4 +262,44 @@ pub fn import_all(client: &mut postgres::Client, data_dir: &Path) -> anyhow::Res
         elapsed.as_secs_f64()
     );
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_nul_borrowed_when_clean() {
+        let result = strip_nul("Stereolab");
+        assert_eq!(&*result, "Stereolab");
+        assert!(matches!(result, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn strip_nul_owned_when_nul_present() {
+        let result = strip_nul("a\0b");
+        assert_eq!(&*result, "ab");
+        assert!(matches!(result, Cow::Owned(_)));
+    }
+
+    #[test]
+    fn strip_nul_drops_all_nuls() {
+        assert_eq!(&*strip_nul("\0a\0b\0"), "ab");
+    }
+
+    #[test]
+    fn strip_nul_empty_passthrough() {
+        let result = strip_nul("");
+        assert_eq!(&*result, "");
+        assert!(matches!(result, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn strip_nul_idempotent() {
+        let once = strip_nul("a\0b\0c");
+        assert_eq!(&*once, "abc");
+        let twice = strip_nul(&once);
+        assert_eq!(&*twice, "abc");
+        assert!(matches!(twice, Cow::Borrowed(_)));
+    }
 }
