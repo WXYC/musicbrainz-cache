@@ -82,13 +82,15 @@ fn corpus_tsv_pg_roundtrip() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let tsv_path = tmp.path().join(TSV_FILENAME);
 
-    // Build a TSV. Skip entries that are known to break the TSV format itself
-    // (literal tab, NUL byte) so that TSV file is well-formed; those entries
-    // are checked against EXPECTED_FAILURES separately.
+    // Build a TSV. Skip entries that would break the TSV format itself
+    // (literal tab, newline) so the file is well-formed; those entries are
+    // checked against EXPECTED_FAILURES separately. NUL bytes are kept in the
+    // TSV — `import_table` strips U+0000 at the PG TEXT write boundary per
+    // WXYC/docs#18, so the round-trip read returns the stripped form.
     let mut tsv = String::new();
     let mut written: Vec<(usize, &str)> = Vec::new();
     for (id, _, input, _) in &entries {
-        if input.contains('\t') || input.contains('\n') || input.contains('\0') {
+        if input.contains('\t') || input.contains('\n') {
             continue;
         }
         tsv.push_str(&id.to_string());
@@ -143,7 +145,11 @@ fn corpus_tsv_pg_roundtrip() {
             }
         };
 
-        let passed = actual.as_deref() == Some(*input);
+        // Strip-at-boundary policy (WXYC/docs#18): U+0000 is stripped at the
+        // PG TEXT write boundary in import_table, so the round-trip read
+        // comes back as the NUL-stripped form.
+        let expected: String = input.replace('\0', "");
+        let passed = actual.as_deref() == Some(expected.as_str());
         match (passed, known) {
             (true, None) => {}
             (true, Some(_tag)) => {
