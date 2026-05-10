@@ -159,4 +159,34 @@ CREATE TABLE IF NOT EXISTS mb_l_release_url (
     url         integer NOT NULL REFERENCES mb_url(id)
 );
 
+-- Cross-cache identity hook (E1 §4.1.2 of library-hook-canonicalization.md).
+-- Mirrored in migrations/0003_wxyc_library_v2.sql. Schema-side dual-write per
+-- the CLAUDE.md "Migrations" contract: fresh-rebuild via apply_schema() must
+-- produce the same end-state as the migration chain.
+--
+-- ``library_id`` mirrors Backend's ``wxyc_schema.library.id``. ``artist_id``
+-- / ``label_id`` / ``format_id`` / ``release_year`` are nullable: this cache
+-- reads from library.db which does not carry Backend's integer IDs.
+-- ``snapshot_source`` CHECK enforces the §3.1 vocabulary.
+CREATE TABLE IF NOT EXISTS wxyc_library (
+    library_id      integer PRIMARY KEY,
+    artist_id       integer,
+    artist_name     text NOT NULL,
+    album_title     text NOT NULL,
+    label_id        integer,
+    label_name      text,
+    format_id       integer,
+    format_name     text,
+    wxyc_genre      text,
+    call_letters    text,
+    call_numbers    integer,
+    release_year    smallint,
+    norm_artist     text NOT NULL,
+    norm_title      text NOT NULL,
+    norm_label      text,
+    snapshot_at     timestamptz NOT NULL,
+    snapshot_source text NOT NULL
+        CHECK (snapshot_source IN ('backend', 'tubafrenzy', 'llm'))
+);
+
 -- Indexes are created separately after bulk import (see create_indexes.sql).

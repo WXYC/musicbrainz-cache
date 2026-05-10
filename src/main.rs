@@ -1,7 +1,7 @@
 use anyhow::{bail, Context};
 use clap::{Args, Parser, Subcommand};
 use musicbrainz_cache::state::{PipelineState, Step};
-use musicbrainz_cache::{download, filter, import, schema};
+use musicbrainz_cache::{download, filter, import, schema, wxyc_loader};
 use std::path::{Path, PathBuf};
 use wxyc_etl::cli::{resolve_database_url, DatabaseArgs, ImportArgs, ResumableBuildArgs};
 use wxyc_etl::logger::{self, LoggerConfig};
@@ -25,6 +25,16 @@ enum Command {
     Build(BuildCmd),
     /// Load a fresh MusicBrainz dump into PostgreSQL (download + schema + import).
     Import(ImportCmd),
+    /// Populate the consolidated `wxyc_library` cross-cache identity hook.
+    ///
+    /// Implements E1 §4.1.2 of the cross-cache-identity rollout. Requires the
+    /// `0003_wxyc_library_v2.sql` migration to have been applied (or
+    /// `apply_schema()` to have run on a fresh DB). Reads a SQLite library.db
+    /// and writes one row per release into `wxyc_library`. Idempotent on
+    /// `library_id`. Wired as a standalone subcommand (not as a step in
+    /// `build`) so this PR's scope stays surgical; the build-step wiring
+    /// lands as a follow-up once the dual-write window opens.
+    ImportWxycLibrary(ImportWxycLibraryCmd),
 }
 
 #[derive(Args)]
@@ -67,6 +77,22 @@ struct ImportCmd {
     /// Override dump URL (default: auto-detect latest).
     #[arg(long)]
     dump_url: Option<String>,
+}
+
+#[derive(Args)]
+struct ImportWxycLibraryCmd {
+    #[command(flatten)]
+    db: DatabaseArgs,
+
+    /// Path to the SQLite library.db produced by wxyc-export-to-sqlite.
+    #[arg(long)]
+    library_db: PathBuf,
+
+    /// Origin of the snapshot. Must be one of `backend`, `tubafrenzy`, `llm`
+    /// (matches the §3.1 CHECK constraint vocabulary). Defaults to `backend`
+    /// since this cache reads from a Backend-derived library.db.
+    #[arg(long, default_value = "backend")]
+    snapshot_source: String,
 }
 
 fn wait_for_postgres(db_url: &str, timeout_secs: u64) -> anyhow::Result<()> {
@@ -347,6 +373,7 @@ fn main() -> anyhow::Result<()> {
     let tool = match &cli.command {
         Command::Build(_) => "musicbrainz-cache build",
         Command::Import(_) => "musicbrainz-cache import",
+        Command::ImportWxycLibrary(_) => "musicbrainz-cache import-wxyc-library",
     };
     // TODO(sentry-dsn): provision SENTRY_DSN in the runtime env (Railway /
     // GitHub Actions / EC2) so panics are forwarded. Without it Sentry stays
@@ -367,7 +394,25 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Build(cmd) => run_build(cmd),
         Command::Import(cmd) => run_import(cmd),
+        Command::ImportWxycLibrary(cmd) => run_import_wxyc_library(cmd),
     }
+}
+
+fn run_import_wxyc_library(cmd: ImportWxycLibraryCmd) -> anyhow::Result<()> {
+    let database_url = resolve_database_url(&cmd.db, DATABASE_ENV_NAME)?;
+    log::info!("import-wxyc-library starting");
+    log::info!("  Database: {}", db_display(&database_url));
+    log::info!("  library.db: {}", cmd.library_db.display());
+    log::info!("  snapshot_source: {}", cmd.snapshot_source);
+
+    wait_for_postgres(&database_url, 30)?;
+    let mut client = postgres::Client::connect(&database_url, postgres::NoTls)
+        .context("Failed to connect to PostgreSQL")?;
+
+    let written =
+        wxyc_loader::populate_wxyc_library_v2(&mut client, &cmd.library_db, &cmd.snapshot_source)?;
+    log::info!("import-wxyc-library complete; {} rows attempted", written);
+    Ok(())
 }
 
 #[cfg(test)]
