@@ -40,7 +40,9 @@ CREATE INDEX IF NOT EXISTS wxyc_library_release_year_idx ON wxyc_library (releas
 CREATE INDEX IF NOT EXISTS wxyc_library_norm_artist_trgm_idx ON wxyc_library USING GIN (norm_artist gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS wxyc_library_norm_title_trgm_idx ON wxyc_library USING GIN (norm_title gin_trgm_ops);
 -- The wxyc_library indexes above support the cross-cache identity hook
--- (E1 section 4.1.2 of plans/library-hook-canonicalization.md). They are
--- mirrored CONCURRENTLY in migrations/0003_wxyc_library_v2.sql for safe
--- re-application against a populated prod cache. This file runs against an
--- empty cache during fresh rebuilds, so plain CREATE INDEX is appropriate.
+-- (E1 section 4.1.2 of plans/library-hook-canonicalization.md). The
+-- migrations/0003_wxyc_library_v2.sql counterpart also uses plain
+-- CREATE INDEX IF NOT EXISTS — the in-file comment in that migration
+-- explains why CONCURRENTLY can't be honored under sqlx-cli's implicit
+-- transaction. Both paths are safe on first apply (empty wxyc_library →
+-- no contention) and short-circuit on re-apply via IF NOT EXISTS.

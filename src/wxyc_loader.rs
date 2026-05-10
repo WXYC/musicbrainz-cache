@@ -282,11 +282,23 @@ pub fn populate_wxyc_library_v2(
              ) FROM STDIN WITH (FORMAT text, NULL '\\N')",
         )?;
         for r in &rows {
-            // norm_artist / norm_title are NOT NULL per §3.1; the normalizer
-            // collapses to a non-empty string for any non-empty input. We
-            // do not paper over an empty result here — if an empty artist or
-            // title slipped in upstream, the NOT NULL on the staging table
-            // will reject the row and surface the upstream issue.
+            // norm_artist / norm_title are NOT NULL per §3.1. Postgres `NOT
+            // NULL` rejects SQL NULL but NOT empty strings — so an empty
+            // artist or title would silently land with an empty norm_*
+            // column, defeating downstream NULL-aware joins. Catch it here
+            // explicitly so the upstream issue (likely a SQLite NULL that
+            // `read_library_db` collapsed to "") surfaces with a clear error
+            // instead of corrupting the cache.
+            if r.artist_name.is_empty() || r.album_title.is_empty() {
+                anyhow::bail!(
+                    "library_id {}: artist_name or album_title is empty (artist={:?}, title={:?}). \
+                     library.db rows must have non-empty artist/title; fix the source row \
+                     before re-running the loader.",
+                    r.library_id,
+                    r.artist_name,
+                    r.album_title,
+                );
+            }
             let norm_artist = to_identity_match_form(&r.artist_name);
             let norm_title = to_identity_match_form_title(&r.album_title);
             let norm_label_v = norm_label(r.label_name.as_deref());
