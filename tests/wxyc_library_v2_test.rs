@@ -238,6 +238,49 @@ fn loader_rejects_invalid_snapshot_source() {
 
 #[test]
 #[ignore] // Requires PostgreSQL: cargo test -- --ignored --test-threads=1
+fn loader_rejects_empty_artist_or_title() {
+    // Postgres `NOT NULL` rejects SQL NULL but NOT empty strings; without
+    // the explicit guard in the COPY loop, a library.db row with an empty
+    // artist would silently land with an empty norm_artist and defeat
+    // downstream NULL-aware joins. Pin the loud-failure behavior.
+    use rusqlite::Connection as SqliteConnection;
+    use tempfile::TempDir;
+
+    let mut client = fresh_client();
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("library.db");
+    let conn = SqliteConnection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE library (\
+            id INTEGER PRIMARY KEY, \
+            artist TEXT NOT NULL, \
+            title TEXT NOT NULL\
+        );",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO library (id, artist, title) VALUES (?, ?, ?)",
+        rusqlite::params![1_i64, "", "Some Title"],
+    )
+    .unwrap();
+    drop(conn);
+
+    let err = populate_wxyc_library_v2(&mut client, &db_path, "backend")
+        .expect_err("empty artist must error");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("artist_name or album_title is empty"),
+        "expected empty-input error, got: {msg}"
+    );
+    let count: i64 = client
+        .query_one("SELECT COUNT(*) FROM wxyc_library", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 0, "loader must not write any rows when bailing");
+}
+
+#[test]
+#[ignore] // Requires PostgreSQL: cargo test -- --ignored --test-threads=1
 fn normalizer_pin_includes_diacritic_fold() {
     let mut client = fresh_client();
     let library_db = build_library_db();
