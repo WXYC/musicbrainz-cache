@@ -163,7 +163,22 @@ fn read_library_db(library_db: &Path) -> anyhow::Result<Vec<LibraryRow>> {
             format_name,
             wxyc_genre: genre,
             call_letters,
-            call_numbers: release_call_number.and_then(|n| i32::try_from(n).ok()),
+            // Mirror the `id` overflow handling above: i32 is what the PG
+            // schema expects; a SQLite value that doesn't fit must surface
+            // as a hard error, not silently become NULL. Catalog
+            // call_numbers are small in practice, but a malformed source
+            // row should fail loud.
+            call_numbers: release_call_number
+                .map(|n| {
+                    i32::try_from(n).map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Integer,
+                            format!("library.release_call_number {n} does not fit in i32").into(),
+                        )
+                    })
+                })
+                .transpose()?,
         })
     })?;
 
@@ -243,6 +258,28 @@ pub fn populate_wxyc_library_v2(
         );
         return Ok(0);
     }
+
+    // Validate every row BEFORE opening the COPY stream. Bailing
+    // mid-stream would leave `writer.finish()` uncalled and the
+    // connection's COPY state implicit-dropped — the outer transaction
+    // still rolls back cleanly (TEMP table + ON COMMIT DROP), but the
+    // pre-pass is cheap and keeps the COPY loop a tight write path.
+    // Postgres `NOT NULL` on the staging table rejects SQL NULL but NOT
+    // empty strings, so this is the only place an empty artist/title
+    // gets caught before it lands with an empty norm_* column and
+    // defeats downstream NULL-aware joins.
+    for r in &rows {
+        if r.artist_name.is_empty() || r.album_title.is_empty() {
+            anyhow::bail!(
+                "library_id {}: artist_name or album_title is empty (artist={:?}, title={:?}). \
+                 library.db rows must have non-empty artist/title; fix the source row \
+                 before re-running the loader.",
+                r.library_id,
+                r.artist_name,
+                r.album_title,
+            );
+        }
+    }
     let attempted = rows.len() as u64;
 
     // Stage rows into a TEMP table via COPY, then INSERT ... ON CONFLICT
@@ -282,23 +319,11 @@ pub fn populate_wxyc_library_v2(
              ) FROM STDIN WITH (FORMAT text, NULL '\\N')",
         )?;
         for r in &rows {
-            // norm_artist / norm_title are NOT NULL per §3.1. Postgres `NOT
-            // NULL` rejects SQL NULL but NOT empty strings — so an empty
-            // artist or title would silently land with an empty norm_*
-            // column, defeating downstream NULL-aware joins. Catch it here
-            // explicitly so the upstream issue (likely a SQLite NULL that
-            // `read_library_db` collapsed to "") surfaces with a clear error
-            // instead of corrupting the cache.
-            if r.artist_name.is_empty() || r.album_title.is_empty() {
-                anyhow::bail!(
-                    "library_id {}: artist_name or album_title is empty (artist={:?}, title={:?}). \
-                     library.db rows must have non-empty artist/title; fix the source row \
-                     before re-running the loader.",
-                    r.library_id,
-                    r.artist_name,
-                    r.album_title,
-                );
-            }
+            // Empty-string validation runs in the pre-pass above; reaching
+            // this loop means every row has non-empty artist/title and is
+            // safe to write. Keep this loop a tight COPY-write path with
+            // no early bails — finishing the writer cleanly is cheaper
+            // than relying on transaction rollback.
             let norm_artist = to_identity_match_form(&r.artist_name);
             let norm_title = to_identity_match_form_title(&r.album_title);
             let norm_label_v = norm_label(r.label_name.as_deref());
