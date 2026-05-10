@@ -32,3 +32,15 @@ CREATE INDEX IF NOT EXISTS idx_mb_l_release_group_url_url ON mb_l_release_group_
 CREATE INDEX IF NOT EXISTS idx_mb_l_release_url_release ON mb_l_release_url(release);
 CREATE INDEX IF NOT EXISTS idx_mb_l_release_url_url ON mb_l_release_url(url);
 CREATE INDEX IF NOT EXISTS idx_mb_link_type ON mb_link(link_type);
+CREATE INDEX IF NOT EXISTS wxyc_library_norm_artist_idx ON wxyc_library (norm_artist);
+CREATE INDEX IF NOT EXISTS wxyc_library_norm_title_idx ON wxyc_library (norm_title);
+CREATE INDEX IF NOT EXISTS wxyc_library_artist_id_idx ON wxyc_library (artist_id);
+CREATE INDEX IF NOT EXISTS wxyc_library_format_id_idx ON wxyc_library (format_id);
+CREATE INDEX IF NOT EXISTS wxyc_library_release_year_idx ON wxyc_library (release_year);
+CREATE INDEX IF NOT EXISTS wxyc_library_norm_artist_trgm_idx ON wxyc_library USING GIN (norm_artist gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS wxyc_library_norm_title_trgm_idx ON wxyc_library USING GIN (norm_title gin_trgm_ops);
+-- The wxyc_library indexes above support the cross-cache identity hook
+-- (E1 section 4.1.2 of plans/library-hook-canonicalization.md). They are
+-- mirrored CONCURRENTLY in migrations/0003_wxyc_library_v2.sql for safe
+-- re-application against a populated prod cache. This file runs against an
+-- empty cache during fresh rebuilds, so plain CREATE INDEX is appropriate.
