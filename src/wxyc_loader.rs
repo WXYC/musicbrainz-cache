@@ -176,11 +176,14 @@ fn read_library_db(library_db: &Path) -> anyhow::Result<Vec<LibraryRow>> {
 
 /// Identity-tier normalization for the optional `label_name` column.
 ///
-/// `to_identity_match_form` accepts `&str` — we want NULL to flow through to
-/// PostgreSQL for the nullable `norm_label` column, so re-introduce the
-/// `Option` at the boundary.
+/// We want NULL to flow through to PostgreSQL for the nullable `norm_label`
+/// column so downstream NULL-aware joins behave correctly. The `.filter`
+/// collapses both the `None` input case AND a `Some("")` post-normalization
+/// case (e.g. a `Some("   ")` whitespace-only label, or a Some("") empty
+/// label that schema drift or a bulk-import artifact could produce) to a
+/// single `None`.
 fn norm_label(label: Option<&str>) -> Option<String> {
-    label.map(to_identity_match_form)
+    label.map(to_identity_match_form).filter(|s| !s.is_empty())
 }
 
 /// Strip U+0000 (NUL) bytes before writing to a PG TEXT column.
@@ -395,6 +398,15 @@ mod tests {
     fn norm_label_normalizes_some() {
         // "Sonamos" should fold to lowercase via the locked-on baseline.
         assert_eq!(norm_label(Some("Sonamos")).as_deref(), Some("sonamos"));
+    }
+
+    #[test]
+    fn norm_label_drops_empty_string() {
+        // `Some("")` and `Some("   ")` (whitespace that the normalizer
+        // collapses to "") must come back as `None` so downstream
+        // NULL-aware lookups on norm_label behave correctly.
+        assert_eq!(norm_label(Some("")), None);
+        assert_eq!(norm_label(Some("   ")), None);
     }
 
     #[test]
