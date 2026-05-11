@@ -5,8 +5,9 @@
 -- for the SHA-256 pin of both files below. Do not edit the function bodies
 -- in this migration directly; refresh by re-vendoring from the upstream
 -- canonical sources:
---   data/wxyc_unaccent.rules         <- wxyc-etl/data/wxyc_unaccent.rules
---   migrations/0005_*                <- wxyc-etl/data/wxyc_identity_match_functions.sql
+--   vendor/wxyc-etl/wxyc_unaccent.rules                 <- wxyc-etl/data/wxyc_unaccent.rules
+--   migrations/0005_* (after the @BEGIN CANONICAL marker)
+--                                                       <- wxyc-etl/data/wxyc_identity_match_functions.sql
 --
 -- Spec: WXYC/wiki `plans/library-hook-canonicalization.md` §3.3.5.
 
@@ -18,6 +19,7 @@ CREATE TEXT SEARCH DICTIONARY wxyc_unaccent (
   RULES = 'wxyc_unaccent'
 );
 
+-- @BEGIN CANONICAL BODY (do not edit; vendored from wxyc-etl)
 -- Canonical SQL implementation of the cross-cache-identity match form.
 --
 -- Vendored verbatim into every cache repo (discogs-etl, musicbrainz-cache,
