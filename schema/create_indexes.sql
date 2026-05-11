@@ -17,6 +17,15 @@ CREATE INDEX IF NOT EXISTS idx_mb_artist_name_lower_trgm
 CREATE INDEX IF NOT EXISTS idx_mb_artist_area ON mb_artist (area);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_alias_artist ON mb_artist_alias (artist);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_alias_name_lower ON mb_artist_alias (lower(name));
+CREATE INDEX IF NOT EXISTS idx_mb_artist_alias_name_lower_trgm ON mb_artist_alias USING GIN (lower(name) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_mb_release_name_lower_trgm ON mb_release USING GIN (lower(name) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_mb_recording_name_lower_trgm ON mb_recording USING GIN (lower(name) gin_trgm_ops);
+-- The three idx_mb_*_name_lower_trgm indexes immediately above mirror
+-- migrations/0004_mb_alias_release_recording_trgm.sql. They serve LML
+-- external-cache fallback queries via the percent similarity operator.
+-- The wxyc_library hook trigram indexes below (a separate concern from
+-- the cross-cache-identity initiative) ship in 0003 and are mirrored
+-- right after this block.
 CREATE INDEX IF NOT EXISTS idx_mb_artist_tag_artist ON mb_artist_tag (artist);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_tag_tag ON mb_artist_tag (tag);
 CREATE INDEX IF NOT EXISTS idx_mb_artist_credit_name_artist ON mb_artist_credit_name (artist);
