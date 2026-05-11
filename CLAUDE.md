@@ -33,7 +33,7 @@ The full rebuild runs on GitHub Actions via `.github/workflows/rebuild-cache.yml
 
 ## Dependencies
 
-- **wxyc-etl** (`"0.3.0"`, crates.io) -- `text::to_match_form` (WX-2 Normalizer Charter, comparison form) for artist-name matching, `schema::musicbrainz` for table constants, `logger::init` for Sentry + structured JSON logs.
+- **wxyc-etl** (`"0.4.0"`, crates.io) -- `text::to_match_form` (WX-2 Normalizer Charter, comparison form) for artist-name matching, `schema::musicbrainz` for table constants, `logger::init` for Sentry + structured JSON logs. v0.4.0 also ships the canonical `wxyc_identity_match_*` plpgsql sources under `data/`; this repo vendors `wxyc_unaccent.rules` + `wxyc_identity_match_functions.sql` under `vendor/wxyc-etl/` (top-level `data/` is .gitignored for MB dumps) plus the parity fixture under `tests/fixtures/identity_normalization_cases.csv` (all SHA-pinned in `wxyc-etl-pin.txt`) and deploys the function family via `migrations/0005_wxyc_identity_match_functions.sql`.
 - **postgres** -- Synchronous PostgreSQL client (matches wxyc-etl).
 - **rusqlite** -- SQLite for reading library.db.
 - **reqwest** (blocking) -- HTTP client for MusicBrainz dump downloads.
