@@ -1,14 +1,22 @@
 //! Integration test for the LML external-search trigram indexes
-//! (`migrations/0004_mb_alias_release_recording_trgm.sql`, mirrored in
-//! `schema/create_indexes.sql`).
+//! (`migrations/0004_mb_alias_release_recording_trgm_indexes.sql`,
+//! mirrored in `schema/create_indexes.sql`).
 //!
 //! Asserts that the three GIN trigram indexes on
 //! `mb_artist_alias`/`mb_release`/`mb_recording`'s `lower(name)` columns
-//! exist after `apply_schema()` runs and are pg_trgm-backed.
+//! exist after `apply_schema()` + `create_indexes()` run and are
+//! pg_trgm-backed.
 //!
-//! Requires a PostgreSQL instance on port 5434 (`docker compose up -d`).
-//! Mirrors the convention in `tests/wxyc_library_v2_test.rs` — no
-//! `#[ignore]`, since this repo's CI provisions the service container.
+//! Test gating mirrors `tests/wxyc_library_v2_test.rs`: each `#[test]`
+//! carries `#[ignore]` so the no-PG `cargo test` job in CI doesn't try to
+//! run them. The `test-postgres` CI job provisions PostgreSQL on port 5434
+//! and runs the suite via `cargo test -- --ignored --test-threads=1`.
+//!
+//! `--test-threads=1` is what coordinates the cross-binary DB writes
+//! (this binary's `drop_all_tables` and `wxyc_library_v2_test.rs`'s
+//! `DROP TABLE wxyc_library` operate on the same DB). The in-binary
+//! `DB_LOCK` below serializes the two tests in THIS binary; CI's
+//! `--test-threads=1` is what handles the cross-binary case.
 
 use musicbrainz_cache::schema;
 use postgres::{Client, NoTls};
@@ -34,11 +42,15 @@ fn lock_db() -> MutexGuard<'static, ()> {
 fn fresh_client() -> Client {
     let mut client = Client::connect(&db_url(), NoTls)
         .expect("Failed to connect to test DB; is `docker compose up -d` running?");
+    // `drop_all_tables` only drops `mb_*` tables; leftover `wxyc_library`
+    // from a sibling test binary doesn't interfere with the assertions
+    // below (the only thing we look at is the three `idx_mb_*_name_lower_trgm`
+    // indexes, and CREATE INDEX IF NOT EXISTS is idempotent).
     schema::drop_all_tables(&mut client).expect("drop_all_tables");
+    // `apply_schema` only loads `create_database.sql`; the indexes live in
+    // `create_indexes.sql` and must be applied via `create_indexes` —
+    // these are two separate functions in `src/schema.rs`.
     schema::apply_schema(&mut client).expect("apply_schema");
-    // Indexes ship in `create_indexes.sql`, applied separately from the
-    // table DDL. `apply_schema` runs both, but call `create_indexes`
-    // explicitly so the test is robust if that ordering ever changes.
     schema::create_indexes(&mut client).expect("create_indexes");
     client
 }
@@ -50,6 +62,7 @@ const EXPECTED_INDEXES: &[&str] = &[
 ];
 
 #[test]
+#[ignore] // Requires PostgreSQL: cargo test -- --ignored --test-threads=1
 fn test_mb_external_search_trgm_indexes_exist() {
     let _lock = lock_db();
     let mut client = fresh_client();
@@ -82,6 +95,7 @@ fn test_mb_external_search_trgm_indexes_exist() {
 }
 
 #[test]
+#[ignore] // Requires PostgreSQL: cargo test -- --ignored --test-threads=1
 fn test_mb_external_search_trgm_indexes_idempotent_on_reapply() {
     let _lock = lock_db();
     let mut client = fresh_client();
@@ -90,26 +104,26 @@ fn test_mb_external_search_trgm_indexes_idempotent_on_reapply() {
     // (CREATE INDEX IF NOT EXISTS) and the second apply must not error.
     schema::apply_schema(&mut client).expect("second apply_schema");
     schema::apply_schema(&mut client).expect("third apply_schema");
+    schema::create_indexes(&mut client).expect("second create_indexes");
 
-    // The three indexes still exist after the repeated applies.
+    // Bind via `ANY($1::text[])` so the query scales with the size of
+    // `EXPECTED_INDEXES` — positional `$1, $2, $3` wouldn't pick up new
+    // entries if the list grew.
+    let expected_vec: Vec<&str> = EXPECTED_INDEXES.to_vec();
     let rows = client
         .query(
             "SELECT indexname FROM pg_indexes \
              WHERE schemaname = 'public' \
-             AND indexname IN ($1, $2, $3) \
+             AND indexname = ANY($1::text[]) \
              ORDER BY indexname",
-            &[
-                &EXPECTED_INDEXES[0],
-                &EXPECTED_INDEXES[1],
-                &EXPECTED_INDEXES[2],
-            ],
+            &[&expected_vec],
         )
         .unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
-    let mut expected: Vec<&str> = EXPECTED_INDEXES.to_vec();
-    expected.sort();
+    let mut expected_sorted: Vec<&str> = EXPECTED_INDEXES.to_vec();
+    expected_sorted.sort();
     assert_eq!(
-        names, expected,
-        "expected all three trigram indexes to survive repeated apply_schema()"
+        names, expected_sorted,
+        "expected all trigram indexes in EXPECTED_INDEXES to survive repeated apply_schema()"
     );
 }

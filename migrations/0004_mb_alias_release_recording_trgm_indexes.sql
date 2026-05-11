@@ -17,11 +17,10 @@
 --      matches recording names. Tracked alongside #34.
 --
 -- These three are decoupled from the new wxyc_library hook (E1 §4.1.2,
--- shipped in 0003_wxyc_library_v2.sql); the hook indexes serve cross-cache
--- identity composition, while these serve LML's pre-cutover external-cache
--- fallback path. They were originally framed as "absorbed by #47" in that
--- ticket's body, but the §4.1.2 migration only touched wxyc_library; this
--- file delivers what #33/#34 actually called for.
+-- shipped in 0003_wxyc_library_v2.sql): the hook indexes serve cross-cache
+-- identity composition; these serve LML's pre-cutover external-cache
+-- fallback path. Different tables, different consumers, different query
+-- shapes.
 --
 -- pg_trgm is enabled by 0001_initial.sql.
 --
