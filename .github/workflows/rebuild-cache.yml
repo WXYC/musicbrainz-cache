@@ -15,6 +15,12 @@ on:
         type: boolean
         default: false
 
+# Workflow-level GITHUB_TOKEN scope. No job in this file pushes code,
+# comments on PRs, or creates releases; all writes to external services
+# use their own non-GITHUB_TOKEN secrets. contents:read is the safe floor.
+permissions:
+  contents: read
+
 jobs:
   rebuild:
     runs-on: ubuntu-latest
