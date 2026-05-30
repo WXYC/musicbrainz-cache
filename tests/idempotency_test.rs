@@ -7,7 +7,7 @@
 //! re-execute the step, and that re-execution must not duplicate data
 //! or fail.
 //!
-//! See CLAUDE.md "Resume safety" for the discipline this test enforces.
+//! See `docs/resume.md` "Resume safety" for the discipline this test enforces.
 //!
 //! Gated on `TEST_DATABASE_URL`: returns early when unset.
 

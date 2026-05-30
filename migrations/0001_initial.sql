@@ -8,8 +8,8 @@
 -- path to `sqlx migrate run` lands separately in WXYC/wxyc-etl#56.
 --
 -- Idempotency: every statement is re-runnable so existing prod databases
--- can be stamped at 0001_initial without re-applying. See CLAUDE.md
--- "Migrations" for the stamp procedure.
+-- can be stamped at 0001_initial without re-applying. See `docs/migrations.md`
+-- for the stamp procedure.
 
 -- =============================================================================
 -- create_database.sql
@@ -21,7 +21,7 @@
 --
 -- Idempotency: every statement is re-runnable. Re-applying the schema against
 -- a populated database is a no-op and does NOT drop existing data. This is a
--- requirement of the `--resume` flow (see CLAUDE.md "Resume safety"). Tests:
+-- requirement of the `--resume` flow (see `docs/resume.md` "Resume safety"). Tests:
 -- tests/idempotency_test.rs.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS mb_l_release_url (
 -- Applied after bulk import and filtering for faster pipeline throughput.
 --
 -- Idempotency: every CREATE INDEX uses IF NOT EXISTS so the Indexes step
--- can be re-run safely under `--resume` (see CLAUDE.md "Resume safety").
+-- can be re-run safely under `--resume` (see `docs/resume.md` "Resume safety").
 
 CREATE INDEX IF NOT EXISTS idx_mb_recording_gid ON mb_recording(gid);
 CREATE INDEX IF NOT EXISTS idx_mb_recording_credit ON mb_recording(artist_credit);
