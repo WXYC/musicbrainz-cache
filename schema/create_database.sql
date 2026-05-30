@@ -4,7 +4,7 @@
 --
 -- Idempotency: every statement is re-runnable. Re-applying the schema against
 -- a populated database is a no-op and does NOT drop existing data. This is a
--- requirement of the `--resume` flow (see CLAUDE.md "Resume safety"). Tests:
+-- requirement of the `--resume` flow (see `docs/resume.md` "Resume safety"). Tests:
 -- tests/idempotency_test.rs.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS mb_l_release_url (
 
 -- Cross-cache identity hook (E1 §4.1.2 of library-hook-canonicalization.md).
 -- Mirrored in migrations/0003_wxyc_library_v2.sql. Schema-side dual-write per
--- the CLAUDE.md "Migrations" contract: fresh-rebuild via apply_schema() must
+-- the `docs/migrations.md` contract: fresh-rebuild via apply_schema() must
 -- produce the same end-state as the migration chain.
 --
 -- ``library_id`` mirrors Backend's ``wxyc_schema.library.id``. ``artist_id``

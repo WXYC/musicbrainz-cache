@@ -2,7 +2,7 @@
 -- Applied after bulk import and filtering for faster pipeline throughput.
 --
 -- Idempotency: every CREATE INDEX uses IF NOT EXISTS so the Indexes step
--- can be re-run safely under `--resume` (see CLAUDE.md "Resume safety").
+-- can be re-run safely under `--resume` (see `docs/resume.md` "Resume safety").
 
 CREATE INDEX IF NOT EXISTS idx_mb_recording_gid ON mb_recording(gid);
 CREATE INDEX IF NOT EXISTS idx_mb_recording_credit ON mb_recording(artist_credit);
