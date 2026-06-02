@@ -262,6 +262,112 @@ fn migration_double_apply_is_a_no_op() {
     assert_eq!(got.as_deref(), Some("stereolab"));
 }
 
+// -- wxyc-postgres image gate (F0000 precheck) -----------------------------
+//
+// Cross-cache-identity follow-up (WXYC/musicbrainz-cache#56): migration 0005's
+// `CREATE TEXT SEARCH DICTIONARY wxyc_unaccent (... RULES = 'wxyc_unaccent')`
+// requires `wxyc_unaccent.rules` to live at `$SHAREDIR/tsearch_data/` on the
+// destination Postgres. The `ghcr.io/wxyc/wxyc-postgres:pg{16,17}` image bakes
+// it in; stock images do not. The migration wraps the dict creation in a
+// plpgsql `DO`/`EXCEPTION WHEN SQLSTATE 'F0000'` block that re-raises with an
+// operator runbook URL when the rules file is missing.
+//
+// The static tests below pin the migration text (runbook URL + F0000 catch),
+// and the live-PG test confirms the F0000 SQLSTATE is what upstream actually
+// emits — independent of the migration's body, so a future Postgres SQLSTATE
+// change surfaces as a test failure instead of silently neutering the catch.
+
+const RUNBOOK_URL: &str = "https://github.com/WXYC/wxyc-etl/blob/main/docs/wxyc-postgres-image.md";
+
+#[test]
+fn migration_contains_runbook_url() {
+    let migration = read("migrations/0005_wxyc_identity_match_functions.sql");
+    let migration = String::from_utf8(migration).expect("migration UTF-8");
+    assert!(
+        migration.contains(RUNBOOK_URL),
+        "runbook URL {RUNBOOK_URL:?} missing from 0005 — operator error message \
+         loses its actionable pointer. Update both the module constant and the \
+         migration if the URL moves."
+    );
+}
+
+#[test]
+fn migration_catches_f0000_sqlstate() {
+    let migration = read("migrations/0005_wxyc_identity_match_functions.sql");
+    let migration = String::from_utf8(migration).expect("migration UTF-8");
+    assert!(
+        migration.contains("WHEN SQLSTATE 'F0000'"),
+        "0005 must catch SQLSTATE 'F0000' (config_file_error); the live-PG test \
+         that pins this contract depends on the migration using the same code."
+    );
+}
+
+#[test]
+#[ignore]
+fn missing_rules_file_emits_f0000_sqlstate() {
+    // Independent of the migration: prove Postgres emits SQLSTATE F0000 when a
+    // text-search dictionary references a rules file that doesn't exist. If
+    // upstream ever changes the SQLSTATE for this case, the migration's catch
+    // arm silently stops working — this test pins the contract.
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("TEST_DATABASE_URL unset — skipping");
+        return;
+    };
+    let mut client = Client::connect(&db_url, postgres::NoTls).expect("connect to test PG");
+    client
+        .batch_execute("CREATE EXTENSION IF NOT EXISTS unaccent")
+        .expect("provision unaccent");
+    let err = client
+        .batch_execute(
+            "CREATE TEXT SEARCH DICTIONARY wxyc_nonexistent_probe ( \
+                TEMPLATE = unaccent, RULES = 'deliberately_missing_for_f0000_test')",
+        )
+        .expect_err("CREATE TEXT SEARCH DICTIONARY with missing rules file must fail");
+    let code = err
+        .as_db_error()
+        .map(|e| e.code().code().to_string())
+        .unwrap_or_default();
+    assert_eq!(
+        code, "F0000",
+        "expected SQLSTATE F0000 (config_file_error); got {code:?}. Update \
+         0005's catch arm and this test together if upstream changes the code."
+    );
+}
+
+#[test]
+#[ignore]
+fn migration_applies_against_wxyc_postgres_image() {
+    // Positive path: against a destination running ghcr.io/wxyc/wxyc-postgres
+    // (rules file present at $SHAREDIR/tsearch_data/), applying 0005 succeeds
+    // and the wxyc_unaccent dictionary works end-to-end. Complements the
+    // existing parity test, which also touches this path indirectly.
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("TEST_DATABASE_URL unset — skipping");
+        return;
+    };
+    let mut client = Client::connect(&db_url, postgres::NoTls).expect("connect to test PG");
+    apply_migration(&mut client);
+
+    let dict_row = client
+        .query_one(
+            "SELECT count(*)::int FROM pg_ts_dict WHERE dictname = 'wxyc_unaccent'",
+            &[],
+        )
+        .expect("query pg_ts_dict");
+    let count: i32 = dict_row.get(0);
+    assert_eq!(count, 1, "wxyc_unaccent dictionary missing after 0005");
+
+    let lex_row = client
+        .query_one("SELECT ts_lexize('wxyc_unaccent', 'café')", &[])
+        .expect("ts_lexize");
+    let lex: Option<Vec<String>> = lex_row.get(0);
+    assert_eq!(
+        lex.as_deref(),
+        Some(&["cafe".to_string()][..]),
+        "wxyc_unaccent('café') → {lex:?}, expected [\"cafe\"]"
+    );
+}
+
 #[test]
 #[ignore]
 fn postgres_functions_idempotent() {
