@@ -295,10 +295,12 @@ fn migration_contains_runbook_url() {
 fn migration_catches_f0000_sqlstate() {
     let migration = read("migrations/0005_wxyc_identity_match_functions.sql");
     let migration = String::from_utf8(migration).expect("migration UTF-8");
+    // Accept either the numeric SQLSTATE form or the named-condition alias —
+    // both are valid plpgsql and either should keep the F0000 catch live.
     assert!(
-        migration.contains("WHEN SQLSTATE 'F0000'"),
+        migration.contains("WHEN SQLSTATE 'F0000'") || migration.contains("WHEN config_file_error"),
         "0005 must catch SQLSTATE 'F0000' (config_file_error); the live-PG test \
-         that pins this contract depends on the migration using the same code."
+         that pins this contract depends on the migration catching that condition."
     );
 }
 
@@ -315,8 +317,11 @@ fn missing_rules_file_emits_f0000_sqlstate() {
     };
     let mut client = Client::connect(&db_url, postgres::NoTls).expect("connect to test PG");
     client
-        .batch_execute("CREATE EXTENSION IF NOT EXISTS unaccent")
-        .expect("provision unaccent");
+        .batch_execute(
+            "CREATE EXTENSION IF NOT EXISTS unaccent; \
+             DROP TEXT SEARCH DICTIONARY IF EXISTS wxyc_nonexistent_probe;",
+        )
+        .expect("provision unaccent + clear any stale probe dict");
     let err = client
         .batch_execute(
             "CREATE TEXT SEARCH DICTIONARY wxyc_nonexistent_probe ( \
