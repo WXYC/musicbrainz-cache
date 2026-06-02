@@ -17,11 +17,17 @@ CREATE EXTENSION IF NOT EXISTS unaccent;
 -- present at $SHAREDIR/tsearch_data/ on the destination Postgres. The
 -- ghcr.io/wxyc/wxyc-postgres:pg{16,17} image bakes it in; stock postgres
 -- images do not. The plpgsql wrapper catches the F0000 (config_file_error)
--- SQLSTATE that Postgres emits when the rules file is missing and re-raises
--- with the operator runbook URL. Other SQLSTATEs propagate unchanged.
-DROP TEXT SEARCH DICTIONARY IF EXISTS wxyc_unaccent;
+-- SQLSTATE that Postgres emits when the rules file is missing or unreadable
+-- and re-raises with the operator runbook URL. Other SQLSTATEs propagate
+-- unchanged.
+--
+-- DROP IF EXISTS lives INSIDE the DO block so its effect rolls back with the
+-- EXCEPTION-arm savepoint on the F0000 path: a runner using autocommit per
+-- statement (e.g. postgres-crate `batch_execute`) would otherwise commit the
+-- DROP and destroy a previously-good dict before the failing CREATE.
 DO $$
 BEGIN
+  DROP TEXT SEARCH DICTIONARY IF EXISTS wxyc_unaccent;
   CREATE TEXT SEARCH DICTIONARY wxyc_unaccent (
     TEMPLATE = unaccent,
     RULES = 'wxyc_unaccent'
@@ -29,9 +35,9 @@ BEGIN
 EXCEPTION
   WHEN SQLSTATE 'F0000' THEN
     RAISE EXCEPTION USING
-      MESSAGE = 'wxyc_unaccent.rules is missing from $SHAREDIR/tsearch_data/. '
+      MESSAGE = 'wxyc_unaccent.rules is missing or unreadable at $SHAREDIR/tsearch_data/. '
                 'The destination PG must run the wxyc-postgres image '
-                '(ghcr.io/wxyc/wxyc-postgres:pg16). Runbook: '
+                '(ghcr.io/wxyc/wxyc-postgres:pg16 or :pg17). Runbook: '
                 'https://github.com/WXYC/wxyc-etl/blob/main/docs/wxyc-postgres-image.md',
       DETAIL = SQLERRM,
       ERRCODE = 'F0000';
