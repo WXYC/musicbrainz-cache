@@ -13,11 +13,30 @@
 
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
+-- The CREATE TEXT SEARCH DICTIONARY below requires wxyc_unaccent.rules to be
+-- present at $SHAREDIR/tsearch_data/ on the destination Postgres. The
+-- ghcr.io/wxyc/wxyc-postgres:pg{16,17} image bakes it in; stock postgres
+-- images do not. The plpgsql wrapper catches the F0000 (config_file_error)
+-- SQLSTATE that Postgres emits when the rules file is missing and re-raises
+-- with the operator runbook URL. Other SQLSTATEs propagate unchanged.
 DROP TEXT SEARCH DICTIONARY IF EXISTS wxyc_unaccent;
-CREATE TEXT SEARCH DICTIONARY wxyc_unaccent (
-  TEMPLATE = unaccent,
-  RULES = 'wxyc_unaccent'
-);
+DO $$
+BEGIN
+  CREATE TEXT SEARCH DICTIONARY wxyc_unaccent (
+    TEMPLATE = unaccent,
+    RULES = 'wxyc_unaccent'
+  );
+EXCEPTION
+  WHEN SQLSTATE 'F0000' THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'wxyc_unaccent.rules is missing from $SHAREDIR/tsearch_data/. '
+                'The destination PG must run the wxyc-postgres image '
+                '(ghcr.io/wxyc/wxyc-postgres:pg16). Runbook: '
+                'https://github.com/WXYC/wxyc-etl/blob/main/docs/wxyc-postgres-image.md',
+      DETAIL = SQLERRM,
+      ERRCODE = 'F0000';
+END;
+$$;
 
 -- @BEGIN CANONICAL BODY (do not edit; vendored from wxyc-etl)
 -- Canonical SQL implementation of the cross-cache-identity match form.

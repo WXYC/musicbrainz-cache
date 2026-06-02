@@ -37,7 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # See docker-compose.yml for the same image; ships wxyc_unaccent.rules at
+        # $SHAREDIR/tsearch_data/ so 0005's CREATE TEXT SEARCH DICTIONARY succeeds
+        # without a docker-cp staging step. Runbook:
+        # https://github.com/WXYC/wxyc-etl/blob/main/docs/wxyc-postgres-image.md
+        image: ghcr.io/wxyc/wxyc-postgres:pg16
         env:
           POSTGRES_USER: musicbrainz
           POSTGRES_PASSWORD: musicbrainz
@@ -56,20 +60,6 @@ jobs:
         run: |
           PGPASSWORD=musicbrainz psql -h localhost -p 5434 -U musicbrainz -d musicbrainz \
             -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;"
-      - name: Install wxyc_unaccent rules into the PG service container
-        # Required by migrations/0005_wxyc_identity_match_functions.sql before
-        # `CREATE TEXT SEARCH DICTIONARY wxyc_unaccent (... RULES = 'wxyc_unaccent')`.
-        # Alpine layout: /usr/local/share/postgresql/tsearch_data (no version subdir).
-        run: |
-          PG_CID=$(docker ps -q --filter ancestor=postgres:16-alpine)
-          if [ -z "$PG_CID" ]; then
-            echo "no postgres:16-alpine service container running" >&2
-            exit 1
-          fi
-          docker cp vendor/wxyc-etl/wxyc_unaccent.rules \
-            "$PG_CID:/usr/local/share/postgresql/tsearch_data/wxyc_unaccent.rules"
-          docker cp vendor/wxyc-etl/wxyc_unaccent.version \
-            "$PG_CID:/usr/local/share/postgresql/tsearch_data/wxyc_unaccent.version"
       - name: Run integration tests
         # `--ignored` picks up the new wxyc_identity_match_* parity tests
         # (postgres_parity_matches_rust_for_every_fixture_row,

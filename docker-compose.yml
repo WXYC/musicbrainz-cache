@@ -1,6 +1,10 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Custom image overlaying wxyc_unaccent.rules onto railwayapp-templates/postgres-ssl
+    # so the F0000 precheck in migrations/0005_wxyc_identity_match_functions.sql finds
+    # the rules file at $SHAREDIR/tsearch_data/. Built + published by WXYC/wxyc-etl#127.
+    # Operator runbook: https://github.com/WXYC/wxyc-etl/blob/main/docs/wxyc-postgres-image.md
+    image: ghcr.io/wxyc/wxyc-postgres:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-musicbrainz}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-musicbrainz}
