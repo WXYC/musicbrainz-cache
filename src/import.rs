@@ -1,21 +1,7 @@
 use anyhow::Context;
-use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-
-/// Strip U+0000 (NUL) bytes from a string before writing to a PG TEXT column.
-///
-/// PostgreSQL TEXT does not accept U+0000 (SQL standard). Per the org-wide
-/// policy in WXYC/docs#18, every PG TEXT write boundary strips NUL — U+0000
-/// in metadata is corruption, never intent. Returns `Cow::Borrowed` when no
-/// NUL is present so the common case avoids allocating.
-fn strip_nul(s: &str) -> Cow<'_, str> {
-    if s.contains('\0') {
-        Cow::Owned(s.replace('\0', ""))
-    } else {
-        Cow::Borrowed(s)
-    }
-}
+use wxyc_etl::pg::to_pg_text_form;
 
 /// Mapping from a MusicBrainz dump file to our schema.
 ///
@@ -207,8 +193,8 @@ pub fn import_table(
             if j > 0 {
                 buf.push(b'\t');
             }
-            // strip NUL per WXYC/docs#18 — see strip_nul docstring.
-            buf.extend_from_slice(strip_nul(val).as_bytes());
+            // strip NUL per WXYC/docs#18; contract is in wxyc_etl::pg::to_pg_text_form.
+            buf.extend_from_slice(to_pg_text_form(val).as_bytes());
         }
         buf.push(b'\n');
         row_count += 1;
@@ -262,44 +248,4 @@ pub fn import_all(client: &mut postgres::Client, data_dir: &Path) -> anyhow::Res
         elapsed.as_secs_f64()
     );
     Ok(total)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strip_nul_borrowed_when_clean() {
-        let result = strip_nul("Stereolab");
-        assert_eq!(&*result, "Stereolab");
-        assert!(matches!(result, Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn strip_nul_owned_when_nul_present() {
-        let result = strip_nul("a\0b");
-        assert_eq!(&*result, "ab");
-        assert!(matches!(result, Cow::Owned(_)));
-    }
-
-    #[test]
-    fn strip_nul_drops_all_nuls() {
-        assert_eq!(&*strip_nul("\0a\0b\0"), "ab");
-    }
-
-    #[test]
-    fn strip_nul_empty_passthrough() {
-        let result = strip_nul("");
-        assert_eq!(&*result, "");
-        assert!(matches!(result, Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn strip_nul_idempotent() {
-        let once = strip_nul("a\0b\0c");
-        assert_eq!(&*once, "abc");
-        let twice = strip_nul(&once);
-        assert_eq!(&*twice, "abc");
-        assert!(matches!(twice, Cow::Borrowed(_)));
-    }
 }
