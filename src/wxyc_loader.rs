@@ -36,6 +36,7 @@
 use anyhow::Context;
 use std::io::Write;
 use std::path::Path;
+use wxyc_etl::pg::to_pg_text_form;
 use wxyc_etl::text::{to_identity_match_form, to_identity_match_form_title};
 
 /// Snapshot-source vocabulary mirroring the §3.1 CHECK constraint.
@@ -201,23 +202,6 @@ fn norm_label(label: Option<&str>) -> Option<String> {
     label.map(to_identity_match_form).filter(|s| !s.is_empty())
 }
 
-/// Strip U+0000 (NUL) bytes before writing to a PG TEXT column.
-///
-/// Mirrors `import.rs::strip_nul`. Per the org-wide WXYC/docs#18 policy,
-/// every PG TEXT write boundary strips NUL — U+0000 in metadata is
-/// corruption, never intent.
-fn strip_nul(s: &str) -> String {
-    if s.contains('\0') {
-        s.replace('\0', "")
-    } else {
-        s.to_owned()
-    }
-}
-
-fn strip_nul_opt(s: Option<&str>) -> Option<String> {
-    s.map(strip_nul)
-}
-
 /// Populate the consolidated `wxyc_library` hook from a SQLite library.db.
 ///
 /// Per E1 §4.1.2 + §3.1: every library row is written. Idempotent on
@@ -331,18 +315,26 @@ pub fn populate_wxyc_library_v2(
                 writer,
                 "{lib_id}\t\\N\t{artist}\t{title}\t\\N\t{label}\t\\N\t{fmt}\t{genre}\t{call_letters}\t{call_numbers}\t\\N\t{n_artist}\t{n_title}\t{n_label}",
                 lib_id = r.library_id,
-                artist = tsv_escape(&strip_nul(&r.artist_name)),
-                title = tsv_escape(&strip_nul(&r.album_title)),
-                label = tsv_escape_opt(strip_nul_opt(r.label_name.as_deref()).as_deref()),
-                fmt = tsv_escape_opt(strip_nul_opt(r.format_name.as_deref()).as_deref()),
-                genre = tsv_escape_opt(strip_nul_opt(r.wxyc_genre.as_deref()).as_deref()),
-                call_letters = tsv_escape_opt(strip_nul_opt(r.call_letters.as_deref()).as_deref()),
+                artist = tsv_escape(&to_pg_text_form(&r.artist_name)),
+                title = tsv_escape(&to_pg_text_form(&r.album_title)),
+                label = tsv_escape_opt(
+                    r.label_name.as_deref().map(to_pg_text_form).as_deref(),
+                ),
+                fmt = tsv_escape_opt(
+                    r.format_name.as_deref().map(to_pg_text_form).as_deref(),
+                ),
+                genre = tsv_escape_opt(
+                    r.wxyc_genre.as_deref().map(to_pg_text_form).as_deref(),
+                ),
+                call_letters = tsv_escape_opt(
+                    r.call_letters.as_deref().map(to_pg_text_form).as_deref(),
+                ),
                 call_numbers = r
                     .call_numbers
                     .map(|n| n.to_string())
                     .unwrap_or_else(|| "\\N".to_string()),
-                n_artist = tsv_escape(&strip_nul(&norm_artist)),
-                n_title = tsv_escape(&strip_nul(&norm_title)),
+                n_artist = tsv_escape(&to_pg_text_form(&norm_artist)),
+                n_title = tsv_escape(&to_pg_text_form(&norm_title)),
                 n_label = tsv_escape_opt(norm_label_v.as_deref()),
             )?;
         }
@@ -376,7 +368,7 @@ pub fn populate_wxyc_library_v2(
 ///
 /// PG COPY's text format reserves backslash, tab, newline, and carriage
 /// return. We escape those; everything else passes through as-is. NUL has
-/// already been stripped at the [`strip_nul`] boundary above.
+/// already been stripped at the [`to_pg_text_form`] boundary above.
 fn tsv_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -444,11 +436,5 @@ mod tests {
         // NULL-aware lookups on norm_label behave correctly.
         assert_eq!(norm_label(Some("")), None);
         assert_eq!(norm_label(Some("   ")), None);
-    }
-
-    #[test]
-    fn strip_nul_removes_u0000() {
-        assert_eq!(strip_nul("clean"), "clean");
-        assert_eq!(strip_nul("hello\0world"), "helloworld");
     }
 }
