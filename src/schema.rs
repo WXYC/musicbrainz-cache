@@ -40,18 +40,17 @@ pub fn drop_all_tables(client: &mut postgres::Client) -> anyhow::Result<()> {
 }
 
 /// Create secondary indexes from create_indexes.sql.
+///
+/// Delegates to `client.batch_execute`, which speaks the PG simple-query
+/// protocol and handles SQL comments + string-literal escaping correctly.
+/// The previous `split(';')` + `starts_with("--")` parser silently dropped
+/// any CREATE INDEX preceded by a leading `--` comment block — see
+/// WXYC/musicbrainz-cache#50.
 pub fn create_indexes(client: &mut postgres::Client) -> anyhow::Result<()> {
     let sql_path = Path::new(SCHEMA_DIR).join("create_indexes.sql");
     let sql = std::fs::read_to_string(&sql_path)
         .with_context(|| format!("Failed to read {}", sql_path.display()))?;
-
-    for statement in sql.split(';') {
-        let statement = statement.trim();
-        if statement.is_empty() || statement.starts_with("--") {
-            continue;
-        }
-        client.batch_execute(statement)?;
-    }
+    client.batch_execute(&sql)?;
     log::info!("Indexes created.");
     Ok(())
 }
