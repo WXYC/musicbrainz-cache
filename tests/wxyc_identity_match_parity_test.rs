@@ -37,7 +37,10 @@ fn read(path: &str) -> Vec<u8> {
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
-    format!("{:x}", h.finalize())
+    // sha2 0.11 moved the digest output from generic-array (which impls LowerHex)
+    // to hybrid-array (which doesn't), so `format!("{:x}", ...)` no longer compiles.
+    // hex::encode produces byte-identical lowercase hex, so the pinned checksums hold.
+    hex::encode(h.finalize())
 }
 
 fn pin_map() -> HashMap<String, String> {
