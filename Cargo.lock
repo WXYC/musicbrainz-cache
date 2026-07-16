@@ -1319,6 +1319,7 @@ dependencies = [
  "anyhow",
  "bzip2",
  "clap",
+ "hex",
  "log",
  "postgres",
  "regex-lite",
