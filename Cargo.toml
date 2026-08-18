@@ -14,7 +14,7 @@ name = "musicbrainz-cache"
 path = "src/main.rs"
 
 [dependencies]
-wxyc-etl = "0.8"
+wxyc-etl = "0.10"
 postgres = "0.19"
 rusqlite = { version = "0.31", features = ["bundled"] }
 reqwest = { version = "0.13", features = ["blocking"] }
